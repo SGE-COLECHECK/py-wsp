@@ -1,0 +1,23 @@
+# WhatsApp Sessions (SENSITIVE - DO NOT COMMIT)
+sessions/
+
+# Screenshots
+screenshots/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Configuration
+config.json
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
