@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: anty_wsp_redis # Nombre único
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - anty_wsp_redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+volumes:
+  anty_wsp_redis_data:
+    driver: local
+    name: anty_wsp_redis_data
+
+networks:
+  default:
+    name: anty_wsp_network
+    driver: bridge
