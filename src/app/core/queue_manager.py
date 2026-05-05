@@ -3,7 +3,7 @@ import asyncio
 import random
 import redis.asyncio as redis
 from app.utils.logger import logger
-from app.core.message_sender import send_report_task
+from app.core.message_sender import process_queue_item
 from app.utils.config_manager import config_manager
 
 class QueueManager:
@@ -21,6 +21,9 @@ class QueueManager:
 
     def set_main_loop(self, loop):
         self.main_loop = loop
+
+    async def connect(self):
+        await self.get_redis()
 
     async def get_redis(self):
         try:
@@ -59,8 +62,14 @@ class QueueManager:
         r = await self.get_redis()
         if not r: return []
         try:
-            keys = await r.keys("queue:*")
-            return sorted([(k.replace("queue:", ""), await r.llen(k)) for k in keys])
+            # En lugar de buscar llaves en Redis (que desaparecen si la cola está en 0),
+            # iteramos sobre las sesiones existentes para mostrar siempre la cola.
+            sessions = config_manager.get_client_list()
+            queues = []
+            for name in sessions:
+                size = await r.llen(f"queue:{name}")
+                queues.append((name, size))
+            return sorted(queues)
         except: return []
 
     async def get_queue_size(self, account: str) -> int:
@@ -96,7 +105,7 @@ class QueueManager:
                 result = await r.blpop(queue_name, timeout=5)
                 if result:
                     _, data_json = result
-                    await send_report_task(account, json.loads(data_json))
+                    await process_queue_item(account, json.loads(data_json))
                     
                     self.batch_counters[account] += 1
                     batch_size = config_manager.get_global("batch_size", 20)

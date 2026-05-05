@@ -125,18 +125,30 @@ class WhatsAppUI:
         
         elif self.active_tab == "CONFIG":
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), "1. PAUSE & DELAY SETTINGS")
+            
+            # Leer el estado actual de la memoria
             min_d = config_manager.get_global("min_delay", 2)
             max_d = config_manager.get_global("max_delay", 5)
             b_size = config_manager.get_global("batch_size", 20)
             b_pause = config_manager.get_global("batch_pause", 60)
-            _, min_d = imgui.slider_int("Min Delay", min_d, 1, 10)
-            _, max_d = imgui.slider_int("Max Delay", max_d, 2, 60)
-            _, b_size = imgui.slider_int("Batch Size", b_size, 5, 100)
-            _, b_pause = imgui.slider_int("Batch Pause", b_pause, 10, 600)
+            
+            # Capturar los cambios en tiempo real, permitiendo bajar hasta 0
+            c1, min_d = imgui.slider_int("Min Delay", min_d, 0, 10)
+            c2, max_d = imgui.slider_int("Max Delay", max_d, 0, 60)
+            c3, b_size = imgui.slider_int("Batch Size", b_size, 1, 500)
+            c4, b_pause = imgui.slider_int("Batch Pause", b_pause, 0, 600)
+            
+            # Si el usuario mueve un slider, actualizar la memoria instantáneamente
+            # Esto evita que el slider vuelva a saltar a su posición original por el bucle de renderizado
+            if c1 or c2 or c3 or c4:
+                config_manager.settings["global"].update({
+                    "min_delay": min_d, "max_delay": max_d, 
+                    "batch_size": b_size, "batch_pause": b_pause
+                })
+            
             if imgui.button("SAVE CONFIG"):
-                config_manager.settings["global"].update({"min_delay": min_d, "max_delay": max_d, "batch_size": b_size, "batch_pause": b_pause})
-                config_manager.save()
-                logger.success("Configuración guardada")
+                config_manager.save() # Guarda en el JSON permanentemente
+                logger.success("Configuración guardada en config.json")
             
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), "2. QUEUE ORCHESTRATOR")
@@ -159,6 +171,25 @@ class WhatsAppUI:
                     queue_manager.toggle_pause(qn)
                 imgui.next_column()
             imgui.columns(1)
+            
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "3. WELCOME MESSAGE OVERRIDE")
+            
+            override_val = config_manager.get_global("override_welcome", False)
+            custom_msg = config_manager.get_global("custom_welcome_msg", "Escribe tu mensaje aquí...")
+            
+            c5, override_val = imgui.checkbox("Sobrescribir Mensaje de Bienvenida", override_val)
+            
+            if override_val:
+                imgui.text_disabled("Usa las variables: {usuario}, {contrasena}, {url}")
+                c6, custom_msg = imgui.input_text_multiline("##custommsg", custom_msg, (imgui.get_window_width() - 30, 80))
+            else:
+                c6 = False
+
+            if c5 or c6:
+                config_manager.settings["global"]["override_welcome"] = override_val
+                config_manager.settings["global"]["custom_welcome_msg"] = custom_msg
+
         imgui.end_child()
 
         # Barra inferior
