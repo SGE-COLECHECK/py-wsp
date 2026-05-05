@@ -54,7 +54,7 @@ class WhatsAppUI:
 
         # --- SIDEBAR ---
         sidebar_width = 250
-        imgui.begin_child("Sidebar", (sidebar_width, -25), True)
+        imgui.begin_child("Sidebar", (sidebar_width, -35), True)
         if imgui.button("🚀 START ALL", (sidebar_width - 20, 35)):
             for name in self.sessions:
                 cfg = config_manager.get_client_config(name)
@@ -123,7 +123,7 @@ class WhatsAppUI:
         imgui.same_line()
 
         # --- CONTENIDO ---
-        imgui.begin_child("Content", (0, -25), False)
+        imgui.begin_child("Content", (0, -35), False)
         if imgui.button("LOGS"):
             self.active_tab = "LOGS"
         imgui.same_line()
@@ -211,12 +211,13 @@ class WhatsAppUI:
         imgui.end_child()
 
         # Barra inferior
-        imgui.set_cursor_pos((0, imgui.get_window_height() - 25))
-        imgui.begin_child("BottomBar", (0, 25), False)
+        imgui.set_cursor_pos((0, imgui.get_window_height() - 35))
+        imgui.begin_child("BottomBar", (0, 35), False)
         imgui.separator()
+        imgui.spacing()
         imgui.set_cursor_pos_x(15)
         imgui.text_colored((0.1, 0.8, 0.4, 1.0) if queue_manager.is_connected else (1, 0.2, 0.2, 1.0), "REDIS STATUS")
-        imgui.same_line(imgui.get_window_width() - 230)
+        imgui.same_line(imgui.get_window_width() - 250)
         imgui.text_disabled(f"CPU: {self.cpu_usage}%  |  RAM: {int(self.ram_usage)}MB")
         imgui.end_child()
 
