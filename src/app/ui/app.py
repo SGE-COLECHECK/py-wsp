@@ -275,7 +275,7 @@ class WhatsAppUI:
 def run_gui_app(loop):
     ui = WhatsAppUI(loop)
     params = hello_imgui.RunnerParams()
-    params.app_window_params.window_title = "WA_ADMIN v0.5 PRO"
+    params.app_window_params.window_title = "COLECHECK WSP-ADMIN"
     params.app_window_params.window_geometry.size = (800, 550)
     params.callbacks.show_gui = ui.draw
     params.imgui_window_params.default_imgui_window_type = hello_imgui.DefaultImGuiWindowType.no_default_window

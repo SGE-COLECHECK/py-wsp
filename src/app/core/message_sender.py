@@ -8,8 +8,8 @@ async def add_contact_task(account: str, data: dict):
     phone = data.get("phone", "")
     name = data.get("name", "")
     
-    logger.info(f"[{account}] === INICIANDO TAREA ESPECIAL: Añadir Contacto ===")
-    logger.info(f"[{account}] 📞 Nombre: {name} | Teléfono: {phone}")
+    logger.info("=== INICIANDO TAREA ESPECIAL: Añadir Contacto ===", account=account)
+    logger.info(f"📞 Nombre: {name} | Teléfono: {phone}", account=account)
     
     page = await browser_manager.get_page(account)
     if "web.whatsapp.com" not in page.url:
@@ -19,7 +19,7 @@ async def add_contact_task(account: str, data: dict):
 
     try:
         # PASO 1: Nuevo Chat
-        logger.info(f"[{account}] [ADD 1/6] Buscando botón 'Nuevo chat'...")
+        logger.debug("[ADD 1/6] Buscando botón 'Nuevo chat'...", account=account)
         # Intentamos varios iconos comunes de nuevo chat
         new_chat_btn = page.locator('button[aria-label*="chat"], [data-icon="new-chat-outline"], [data-icon="chat"]').first
         await new_chat_btn.wait_for(state="visible", timeout=8000)
@@ -27,7 +27,7 @@ async def add_contact_task(account: str, data: dict):
         await asyncio.sleep(1.5)
 
         # PASO 2: Nuevo Contacto (Hacer clic en la fila del menú)
-        logger.info(f"[{account}] [ADD 2/6] Buscando opción 'Nuevo contacto' en la lista...")
+        logger.debug("[ADD 2/6] Buscando opción 'Nuevo contacto' en la lista...", account=account)
         # En tu captura es una fila que dice "Nuevo contacto"
         new_contact_row = page.get_by_text("Nuevo contacto", exact=False).first
         await new_contact_row.wait_for(state="visible", timeout=5000)
@@ -35,7 +35,7 @@ async def add_contact_task(account: str, data: dict):
         await asyncio.sleep(2)
 
         # PASO 3: Rellenar Nombre
-        logger.info(f"[{account}] [ADD 3/6] Rellenando campo de nombre...")
+        logger.debug("[ADD 3/6] Rellenando campo de nombre...", account=account)
         # El primer cuadro editable en el modal de contacto es siempre el Nombre
         name_field = page.locator('div[contenteditable="true"]').first
         await name_field.wait_for(state="visible", timeout=8000)
@@ -47,7 +47,7 @@ async def add_contact_task(account: str, data: dict):
         await asyncio.sleep(0.5)
 
         # PASO 4: Rellenar Teléfono
-        logger.info(f"[{account}] [ADD 4/6] Rellenando campo de teléfono...")
+        logger.debug("[ADD 4/6] Rellenando campo de teléfono...", account=account)
         # Intentamos encontrar el input que está después del texto "Teléfono"
         phone_field = page.locator('div').filter(has_text=re.compile(r"^Teléfono$")).locator('..').locator('input').first
         if not await phone_field.count():
@@ -61,17 +61,17 @@ async def add_contact_task(account: str, data: dict):
         await asyncio.sleep(1)
 
         # PASO 5: Switch Sincronizar
-        logger.info(f"[{account}] [ADD 5/6] Verificando switch de sincronización...")
+        logger.debug("[ADD 5/6] Verificando switch de sincronización...", account=account)
         sync_switch = page.locator('[role="checkbox"], [role="switch"], .x10l6tqk.x13vifvy').last
         try:
             await sync_switch.wait_for(state="attached", timeout=3000)
             await sync_switch.click()
             await asyncio.sleep(1)
         except:
-            logger.warn(f"[{account}] ⚠️ Switch no encontrado, saltando...")
+            logger.warn("⚠️ Switch no encontrado, saltando...", account=account)
 
         # PASO 6: Guardar Contacto
-        logger.info(f"[{account}] [ADD 6/6] Guardando contacto y validando...")
+        logger.debug("[ADD 6/6] Guardando contacto y validando...", account=account)
         # En WhatsApp Business, a veces el botón es un icono o dice "Guardar"
         save_selectors = [
             'div[role="button"]:has-text("Guardar")',
@@ -96,12 +96,12 @@ async def add_contact_task(account: str, data: dict):
         await save_btn.wait_for(state="visible", timeout=5000)
         
         if data.get("dry_run"):
-            logger.warn(f"[{account}] 🧪 MODO DRY-RUN: Simulado, omitiendo clic en 'Guardar'.")
+            logger.warn("🧪 MODO DRY-RUN: Simulado, omitiendo clic en 'Guardar'.", account=account)
         else:
             await save_btn.click()
             await asyncio.sleep(2)
 
-        logger.success(f"[{account}] ✅ Contacto procesado: {name} ({phone})")
+        logger.success(f"✅ Contacto procesado: {name} ({phone})", account=account)
 
         # PASO 7: Cerrar
         try:
@@ -110,7 +110,7 @@ async def add_contact_task(account: str, data: dict):
         except: pass
 
     except Exception as e:
-        logger.error(f"[{account}] ❌ Error al añadir contacto {name}: {str(e)}")
+        logger.error(f"❌ Error al añadir contacto {name}: {str(e)}", account=account)
         # Tomar captura de pantalla para diagnóstico
         try:
             os.makedirs("data/errors", exist_ok=True)
@@ -133,7 +133,7 @@ async def send_report_task(account: str, data: dict):
     message = data.get("message", "")
     
     if not phone or not message:
-        logger.error(f"[{account}] Datos insuficientes")
+        logger.error("Datos insuficientes", account=account)
         return
 
     formatted_phone = re.sub(r'[\s\-\(\)]', '', str(phone))
@@ -142,7 +142,7 @@ async def send_report_task(account: str, data: dict):
 
     for attempt in range(1, 3):
         try:
-            logger.info(f"[{account}] === INICIANDO ENVÍO A {formatted_phone} (Intento {attempt}) ===")
+            logger.info(f"=== INICIANDO ENVÍO A {formatted_phone} (Intento {attempt}) ===", account=account)
             page = await browser_manager.get_page(account)
             
             if "web.whatsapp.com" not in page.url:
@@ -151,7 +151,7 @@ async def send_report_task(account: str, data: dict):
             await page.wait_for_selector("#side", timeout=60000)
 
             # --- PASO 1 ---
-            logger.info(f"[{account}] [PASO 1] Buscando y limpiando el cuadro de búsqueda...")
+            logger.debug("[PASO 1] Buscando y limpiando el cuadro de búsqueda...", account=account)
             search_selectors = [
                 'div[contenteditable="true"][data-tab="3"]',
                 'div[contenteditable="true"][title*="búsqueda"]',
@@ -178,15 +178,15 @@ async def send_report_task(account: str, data: dict):
             await search_box.click(click_count=3)
             await asyncio.sleep(0.05)
             await page.keyboard.press("Backspace")
-            logger.info(f"[{account}] [PASO 1] ✅ Cuadro de búsqueda limpio.")
+            logger.debug("[PASO 1] ✅ Cuadro de búsqueda limpio.", account=account)
 
             # --- PASO 2 ---
-            logger.info(f"[{account}] [PASO 2] Escribiendo el número y presionando Enter: {formatted_phone}")
+            logger.debug(f"[PASO 2] Escribiendo el número y presionando Enter: {formatted_phone}", account=account)
             await search_box.type(formatted_phone, delay=50) 
             await page.keyboard.press("Enter")
 
             # --- PASO 3 ---
-            logger.info(f"[{account}] [PASO 3] Verificando si se abrió el chat...")
+            logger.debug("[PASO 3] Verificando si se abrió el chat...", account=account)
             await asyncio.sleep(random.uniform(0.5, 1.5))
             
             no_whatsapp_found = await page.evaluate('''() => {
@@ -199,12 +199,12 @@ async def send_report_task(account: str, data: dict):
             }''')
 
             if no_whatsapp_found:
-                logger.warn(f"⚠️ [{account}] Número {formatted_phone} no tiene WhatsApp o no se encontró.")
+                logger.warn(f"⚠️ Número {formatted_phone} no tiene WhatsApp o no se encontró.", account=account)
                 await page.keyboard.press("Escape")
                 return
 
             # --- PASO 4 ---
-            logger.info(f"[{account}] [PASO 4] Buscando el cuadro de mensaje...")
+            logger.debug("[PASO 4] Buscando el cuadro de mensaje...", account=account)
             msg_selectors = [
                 'div[contenteditable="true"][data-tab="10"]',
                 'footer div[contenteditable="true"]',
@@ -216,9 +216,9 @@ async def send_report_task(account: str, data: dict):
             msg_box = None
             try:
                 msg_box = await page.wait_for_selector(", ".join(msg_selectors), timeout=5000)
-                logger.info(f"[{account}] [PASO 4] ✅ Selector principal encontrado")
+                logger.debug("[PASO 4] ✅ Selector principal encontrado", account=account)
             except:
-                logger.warn(f"[{account}] ⚠️ Probando selectores alternativos...")
+                logger.warn("⚠️ Probando selectores alternativos...", account=account)
                 try:
                     fallback_selectors = [
                         'footer div.lexical-rich-text-input [contenteditable="true"]',
@@ -227,23 +227,23 @@ async def send_report_task(account: str, data: dict):
                         '[aria-label*="mensaje"]'
                     ]
                     msg_box = await page.wait_for_selector(", ".join(fallback_selectors), timeout=5000)
-                    logger.info(f"[{account}] [PASO 4] ✅ Selector alternativo encontrado")
+                    logger.debug("[PASO 4] ✅ Selector alternativo encontrado", account=account)
                 except:
                     raise Exception("No se encontró el cuadro de mensaje.")
 
             await msg_box.click()
             await asyncio.sleep(0.2)
-            logger.info(f"[{account}] [PASO 4] ✅ Cuadro de mensaje activo.")
+            logger.debug("[PASO 4] ✅ Cuadro de mensaje activo.", account=account)
 
             # --- PASO 4.5 ---
-            logger.info(f"[{account}] [PASO 4.5] Limpiando borradores...")
+            logger.debug("[PASO 4.5] Limpiando borradores...", account=account)
             await page.keyboard.press("Control+A")
             await asyncio.sleep(0.05)
             await page.keyboard.press("Backspace")
             await asyncio.sleep(0.05)
 
             # --- PASO 5 ---
-            logger.info(f"[{account}] [PASO 5] Escribiendo el mensaje de forma fluida...")
+            logger.debug("[PASO 5] Escribiendo el mensaje de forma fluida...", account=account)
             lines = message.split('\n')
             typing_delay = 15 
             
@@ -253,29 +253,28 @@ async def send_report_task(account: str, data: dict):
                 if i < len(lines) - 1:
                     await page.keyboard.press("Shift+Enter")
                     
-            logger.info(f"[{account}] [PASO 5] ✅ Mensaje escrito.")
+            logger.debug("✅ Mensaje escrito.", account=account)
 
             # --- PASO 6 ---
-            await asyncio.sleep(0.1)
-            logger.info(f"[{account}] [PASO 6] Enviando mensaje...")
+            logger.debug("Enviando mensaje...", account=account)
             
             if data.get("dry_run"):
-                logger.warn(f"[{account}] 🧪 MODO DRY-RUN: Simulado exitosamente, omitiendo 'Enter'.")
+                logger.warn("🧪 MODO DRY-RUN: Simulado exitosamente, omitiendo 'Enter'.", account=account)
             else:
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(0.5)
-                logger.success(f"[{account}] ✅ Mensaje enviado a {formatted_phone}.")
+                logger.success(f"✅ Mensaje enviado a {formatted_phone}.", account=account)
             
             await page.keyboard.press("Escape")
-            logger.info(f"[{account}] [PASO 6] Chat cerrado.")
+            logger.debug("[PASO 6] Chat cerrado.", account=account)
             return
 
         except Exception as e:
-            logger.error(f"[{account}] ❌ Error en intento {attempt}: {str(e)}")
+            logger.error(f"❌ Error en intento {attempt}: {str(e)}", account=account)
             if attempt == 1:
                 await asyncio.sleep(5)
             else:
-                logger.error(f"🚨 [{account}] Fallo definitivo para {phone}")
+                logger.error(f"Fallo definitivo para {phone}", account=account)
 
 async def process_queue_item(account: str, data: dict):
     """Enrutador de tareas dependiendo del tipo."""
@@ -286,7 +285,7 @@ async def process_queue_item(account: str, data: dict):
     elif task_type == "message":
         await send_report_task(account, data)
     else:
-        logger.error(f"[{account}] ❌ Tipo de tarea desconocido: {task_type}")
+        logger.error(f"❌ Tipo de tarea desconocido: {task_type}", account=account)
 
 # Alias para mantener compatibilidad con el resto del código si algo lo llamaba directamente
 send_message = process_queue_item

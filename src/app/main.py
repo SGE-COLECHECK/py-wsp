@@ -98,11 +98,14 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
     override_enabled = config_manager.get_global("override_welcome", False)
     custom_msg = config_manager.get_global("custom_welcome_msg", "")
 
+    import datetime
+    today = datetime.datetime.now().strftime("%d/%m/%Y")
+
     if override_enabled and custom_msg.strip():
         # Permitir variables opcionales en el mensaje estático
-        message = custom_msg.replace("{usuario}", usuario).replace("{contrasena}", contrasena).replace("{url}", url)
+        message = custom_msg.replace("{usuario}", usuario).replace("{contrasena}", contrasena).replace("{url}", url).replace("{fecha}", today)
     else:
-        message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ \n\n"
+        message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ *[ {today} ]*\n\n"
         message += f"👋 ¡Bienvenido/a!\n"
         message += f"Le damos la bienvenida al sistema de seguimiento académico 📚\n\n"
         message += f"🔔 *Importante:*\n"
@@ -135,6 +138,65 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
             "fecha": today
         },
         "status": "queued"
+    }
+
+@app.post("/whatsapp/wapp-web/{account}/sendRegistrationLink")
+async def send_registration_link(account: str, request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    telefono = data.get("telefono_padre")
+    url = data.get("url")
+
+    if not telefono or not url:
+        logger.error("Faltan datos obligatorios (telefono_padre, url)", account=account)
+        return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre, url)"}
+
+    # Validar teléfono (debe ser 9 dígitos)
+    phone_clean = "".join(filter(str.isdigit, str(telefono)))
+    if len(phone_clean) != 9:
+        logger.error(f"Teléfono inválido: {telefono} (debe ser 9 dígitos)", account=account)
+        return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
+
+    import datetime
+    today = datetime.datetime.now().strftime("%d/%m/%Y")
+
+    # Construir mensaje de registro estructurado
+    message = [
+        f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ *[ {today} ]*",
+        "",
+        "👋 Estimado padre/madre:",
+        "",
+        "📊 Ahora puede revisar la asistencia de su hijo/a en tiempo real.",
+        "",
+        "📲 Regístrese en menos de 1 minuto:",
+        f"🔗 {url}",
+        "",
+        "1️⃣ Ingrese al enlace",
+        "2️⃣ Complete sus datos",
+        "3️⃣ Seleccione a su hijo/a",
+        "",
+        "🔐 Validaremos su información y le enviaremos su acceso por este medio.",
+        "",
+        "🎓 *Equipo ColeCheck*"
+    ]
+    final_message = "\n".join(message)
+
+    payload = {
+        "type": "message",
+        "phone": phone_clean,
+        "message": final_message,
+        "dry_run": data.get("dry_run", False)
+    }
+
+    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    
+    logger.success(f"Link de registro encolado para {phone_clean}", account=account)
+
+    return {
+        "success": True,
+        "message": "Link de registro agregado a la cola exitosamente",
+        "queueId": f"{account}-registration-{phone_clean}",
+        "sessionName": account,
+        "status": "queued",
     }
 
 @app.post("/whatsapp/wapp-web/{account}/sendwReport")
