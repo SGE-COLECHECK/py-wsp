@@ -199,6 +199,74 @@ async def send_registration_link(account: str, request: Request, background_task
         "status": "queued",
     }
 
+@app.post("/whatsapp/wapp-web/{account}/sendCredentials")
+async def send_credentials(account: str, request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    telefono = data.get("telefono_padre")
+    usuario = data.get("usuario")
+    contrasena = data.get("contrasena")
+    tenant_id = data.get("tenantId")
+    url_over = data.get("url")
+
+    if not telefono or not usuario or not contrasena or not tenant_id:
+        logger.error("Faltan datos obligatorios (telefono_padre, usuario, contrasena, tenantId)", account=account)
+        return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre, usuario, contrasena, tenantId)"}
+
+    # Validar teléfono (debe ser 9 dígitos)
+    phone_clean = "".join(filter(str.isdigit, str(telefono)))
+    if len(phone_clean) != 9:
+        logger.error(f"Teléfono inválido: {telefono} (debe ser 9 dígitos)", account=account)
+        return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
+
+    import datetime
+    today = datetime.datetime.now().strftime("%d/%m/%Y")
+
+    # Usar la URL proporcionada o construirla dinámicamente
+    login_url = url_over if url_over else f"https://panel.colecheck.com/{tenant_id}/login"
+
+    # Construir mensaje de credenciales resaltando información clave
+    message = [
+        "🎓 *Equipo ColeCheck*",
+        "",
+        "🔐 *Credenciales de acceso:*",
+        f"👤 Usuario: {usuario}",
+        f"🔑 Contraseña: {contrasena}",
+        f"🌐 {login_url}",
+        "",
+        "⚠️ *Importante:*",
+        "Guarde este mensaje y no comparta sus credenciales.",
+        "",
+        "📲 *¿Por qué usar la plataforma?*",
+        "En horarios de ingreso, muchos estudiantes registran su asistencia al mismo tiempo, lo que puede generar demoras en los mensajes de WhatsApp.",
+        "Desde la plataforma puede verlo *al instante*, sin esperar."
+    ]
+    final_message = "\n".join(message)
+
+    payload = {
+        "type": "message",
+        "phone": phone_clean,
+        "message": final_message,
+        "dry_run": data.get("dry_run", False)
+    }
+
+    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    
+    logger.success(f"Credenciales encoladas para {usuario} ({phone_clean})", account=account)
+
+    return {
+        "success": True,
+        "message": "Credenciales agregadas a la cola exitosamente",
+        "queueId": f"{account}-credentials-{phone_clean}",
+        "sessionName": account,
+        "data": {
+            "telefono": phone_clean,
+            "usuario": usuario,
+            "loginUrl": login_url,
+            "fecha": today
+        },
+        "status": "queued",
+    }
+
 @app.post("/whatsapp/wapp-web/{account}/sendwReport")
 async def send_weekly_report(account: str, request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
