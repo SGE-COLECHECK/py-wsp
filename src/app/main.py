@@ -51,7 +51,8 @@ async def add_number(account: str, request: Request, background_tasks: Backgroun
     payload = {
         "type": "add_contact",
         "name": nombre,
-        "phone": telefono
+        "phone": telefono,
+        "dry_run": data.get("dry_run", False)
     }
     
     background_tasks.add_task(queue_manager.enqueue, account, payload)
@@ -99,7 +100,8 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
     payload = {
         "type": "message", 
         "phone": telefono,
-        "message": message
+        "message": message,
+        "dry_run": data.get("dry_run", False)
     }
     
     background_tasks.add_task(queue_manager.enqueue, account, payload)
@@ -176,7 +178,8 @@ async def send_weekly_report(account: str, request: Request, background_tasks: B
     payload = {
         "type": "message",
         "phone": telefono,
-        "message": message
+        "message": message,
+        "dry_run": data.get("dry_run", False)
     }
     
     background_tasks.add_task(queue_manager.enqueue, account, payload)

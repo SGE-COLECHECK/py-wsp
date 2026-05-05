@@ -6,3 +6,4 @@ imgui-bundle
 redis
 hiredis
 psutil
+requests

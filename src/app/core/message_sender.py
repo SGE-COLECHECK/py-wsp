@@ -20,68 +20,108 @@ async def add_contact_task(account: str, data: dict):
     try:
         # PASO 1: Nuevo Chat
         logger.info(f"[{account}] [ADD 1/6] Buscando botón 'Nuevo chat'...")
-        new_chat_btn = page.locator('button[aria-label="Nuevo chat"], button[aria-label*="Nuevo chat"], span[data-icon="new-chat-outline"]').first
-        await new_chat_btn.wait_for(state="visible", timeout=5000)
+        # Intentamos varios iconos comunes de nuevo chat
+        new_chat_btn = page.locator('button[aria-label*="chat"], [data-icon="new-chat-outline"], [data-icon="chat"]').first
+        await new_chat_btn.wait_for(state="visible", timeout=8000)
         await new_chat_btn.click()
-        await asyncio.sleep(1)
-
-        # PASO 2: Nuevo Contacto
-        logger.info(f"[{account}] [ADD 2/6] Buscando opción 'Nuevo contacto'...")
-        new_contact_span = page.locator('span').filter(has_text="Nuevo contacto").first
-        await new_contact_span.wait_for(state="visible", timeout=5000)
-        await new_contact_span.click()
         await asyncio.sleep(1.5)
+
+        # PASO 2: Nuevo Contacto (Hacer clic en la fila del menú)
+        logger.info(f"[{account}] [ADD 2/6] Buscando opción 'Nuevo contacto' en la lista...")
+        # En tu captura es una fila que dice "Nuevo contacto"
+        new_contact_row = page.get_by_text("Nuevo contacto", exact=False).first
+        await new_contact_row.wait_for(state="visible", timeout=5000)
+        await new_contact_row.click()
+        await asyncio.sleep(2)
 
         # PASO 3: Rellenar Nombre
         logger.info(f"[{account}] [ADD 3/6] Rellenando campo de nombre...")
-        name_field = page.locator('p[dir="auto"].copyable-text, p._aupe.copyable-text').first
-        await name_field.wait_for(state="visible", timeout=5000)
+        # El primer cuadro editable en el modal de contacto es siempre el Nombre
+        name_field = page.locator('div[contenteditable="true"]').first
+        await name_field.wait_for(state="visible", timeout=8000)
         await name_field.click()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)
         await page.keyboard.press("Control+A")
         await page.keyboard.press("Backspace")
-        await page.keyboard.type(name, delay=50)
+        await page.keyboard.type(name, delay=60)
         await asyncio.sleep(0.5)
 
         # PASO 4: Rellenar Teléfono
         logger.info(f"[{account}] [ADD 4/6] Rellenando campo de teléfono...")
-        phone_field = page.locator('input[type="text"][aria-label*="Número de teléfono"], input[type="text"][aria-label*="Phone"]').first
+        # Intentamos encontrar el input que está después del texto "Teléfono"
+        phone_field = page.locator('div').filter(has_text=re.compile(r"^Teléfono$")).locator('..').locator('input').first
+        if not await phone_field.count():
+            # Fallback 2: El último input de tipo texto dentro del diálogo
+            phone_field = page.locator('div[role="dialog"] input[type="text"]').last
+        
         await phone_field.wait_for(state="visible", timeout=5000)
-        await phone_field.click()
-        await asyncio.sleep(0.2)
-        await page.keyboard.press("Control+A")
-        await page.keyboard.press("Backspace")
-        await page.keyboard.type(phone, delay=50)
-        await asyncio.sleep(2)
+        await phone_field.click(force=True)
+        await asyncio.sleep(0.5)
+        await phone_field.fill(phone)
+        await asyncio.sleep(1)
 
-        # PASO 5: Switch Sincronización
+        # PASO 5: Switch Sincronizar
         logger.info(f"[{account}] [ADD 5/6] Verificando switch de sincronización...")
-        sync_switch = page.locator('input#sync-contact-switch[role="switch"], input[role="switch"][aria-label*="Sincronizar"]').first
+        sync_switch = page.locator('[role="checkbox"], [role="switch"], .x10l6tqk.x13vifvy').last
         try:
             await sync_switch.wait_for(state="attached", timeout=3000)
-            is_checked = await sync_switch.evaluate("el => el.getAttribute('aria-checked') === 'true'")
-            if not is_checked:
-                await sync_switch.click()
-                await asyncio.sleep(1)
+            await sync_switch.click()
+            await asyncio.sleep(1)
         except:
-            logger.warn(f"[{account}] ⚠️ Switch no encontrado o no visible, continuando...")
+            logger.warn(f"[{account}] ⚠️ Switch no encontrado, saltando...")
 
         # PASO 6: Guardar Contacto
         logger.info(f"[{account}] [ADD 6/6] Guardando contacto y validando...")
-        save_btn = page.locator('div[role="button"][aria-label="Guardar contacto"], div[role="button"][aria-label*="Guardar"]').first
-        await save_btn.wait_for(state="visible", timeout=10000)
-        await save_btn.click()
-        await asyncio.sleep(1.5)
+        # En WhatsApp Business, a veces el botón es un icono o dice "Guardar"
+        save_selectors = [
+            'div[role="button"]:has-text("Guardar")',
+            'div[role="button"][aria-label*="Guardar"]',
+            'div[role="button"] [data-icon="checkmark"]',
+            'div[role="button"] [data-icon="check"]',
+            'span:has-text("Guardar")',
+            'button:has-text("Guardar")'
+        ]
+        
+        save_btn = None
+        for sel in save_selectors:
+            btn = page.locator(sel).first
+            if await btn.count() > 0:
+                save_btn = btn
+                break
+        
+        if not save_btn:
+             # Último recurso: El botón que esté más a la derecha en la cabecera del modal
+             save_btn = page.locator('div[role="dialog"] div[role="button"]').last
 
-        logger.success(f"[{account}] ✅ Contacto añadido exitosamente: {name} ({phone})")
+        await save_btn.wait_for(state="visible", timeout=5000)
+        
+        if data.get("dry_run"):
+            logger.warn(f"[{account}] 🧪 MODO DRY-RUN: Simulado, omitiendo clic en 'Guardar'.")
+        else:
+            await save_btn.click()
+            await asyncio.sleep(2)
+
+        logger.success(f"[{account}] ✅ Contacto procesado: {name} ({phone})")
 
         # PASO 7: Cerrar
-        logger.info(f"[{account}] Cerrando formulario...")
-        await page.keyboard.press("Escape")
-        await asyncio.sleep(0.5)
+        try:
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+        except: pass
 
     except Exception as e:
         logger.error(f"[{account}] ❌ Error al añadir contacto {name}: {str(e)}")
+        # Tomar captura de pantalla para diagnóstico
+        try:
+            os.makedirs("data/errors", exist_ok=True)
+            path = f"data/errors/add_contact_{account}_{int(time.time())}.png"
+            await page.screenshot(path=path)
+            logger.info(f"[{account}] 📸 Captura de error guardada en: {path}")
+            # Loggear el HTML del modal para ver los nombres de los campos
+            modal_html = await page.locator('div[role="dialog"]').inner_html()
+            logger.info(f"[{account}] 📄 Estructura del modal capturada para análisis.")
+        except: pass
+        
         try:
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.5)
@@ -218,10 +258,13 @@ async def send_report_task(account: str, data: dict):
             # --- PASO 6 ---
             await asyncio.sleep(0.1)
             logger.info(f"[{account}] [PASO 6] Enviando mensaje...")
-            await page.keyboard.press("Enter")
             
-            await asyncio.sleep(0.5)
-            logger.success(f"[{account}] ✅ Mensaje enviado a {formatted_phone}.")
+            if data.get("dry_run"):
+                logger.warn(f"[{account}] 🧪 MODO DRY-RUN: Simulado exitosamente, omitiendo 'Enter'.")
+            else:
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(0.5)
+                logger.success(f"[{account}] ✅ Mensaje enviado a {formatted_phone}.")
             
             await page.keyboard.press("Escape")
             logger.info(f"[{account}] [PASO 6] Chat cerrado.")
