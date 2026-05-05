@@ -53,7 +53,9 @@ class WhatsAppUI:
         imgui.begin("Main", None, imgui.WindowFlags_.no_title_bar | imgui.WindowFlags_.no_resize)
 
         # --- SIDEBAR ---
-        sidebar_width = 250
+        # Hacer el sidebar responsivo: 28% de la ventana actual, mínimo 280px
+        window_width = imgui.get_window_width()
+        sidebar_width = max(280, int(window_width * 0.28))
         imgui.begin_child("Sidebar", (sidebar_width, -60), True)
         if imgui.button(f"{icons_fontawesome.ICON_FA_ROCKET}  START ALL", (sidebar_width - 20, 35)):
             for name in self.sessions:
@@ -101,13 +103,13 @@ class WhatsAppUI:
             count = self.queue_counts.get(name, 0)
             sent = logger.get_account_stats(name)
             
-            imgui.same_line(sidebar_width - 75)
+            imgui.same_line(sidebar_width - 85)
             imgui.text_colored((0.2, 0.9, 0.5, 1), str(sent)) # Enviados
-            imgui.same_line(sidebar_width - 35)
+            imgui.same_line(sidebar_width - 40)
             imgui.text_colored((1, 0.8, 0.2, 1), str(count)) # En cola
             
             # Línea 2: Toggle "On" (Activo) y Botones de acción
-            imgui.set_cursor_pos_x(25)
+            imgui.set_cursor_pos_x(10)
             c_en, enabled = imgui.checkbox("On", enabled)
             if c_en:
                 config_manager.set_client_config(name, {"enabled": enabled})
