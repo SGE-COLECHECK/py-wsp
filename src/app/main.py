@@ -4,6 +4,17 @@ from app.core.queue_manager import queue_manager
 from app.utils.logger import logger
 from app.ui.app import run_gui_app
 
+def format_student_name(full_name: str) -> str:
+    """Abrevia los dos últimos apellidos a sus iniciales."""
+    parts = full_name.strip().split()
+    if len(parts) <= 1: return full_name
+    if len(parts) == 2: return f"{parts[0]} {parts[1][0]}."
+    
+    names = parts[:-2]
+    surnames = parts[-2:]
+    formatted_surnames = " ".join([f"{s[0]}." for s in surnames])
+    return f"{' '.join(names)} {formatted_surnames}"
+
 app = FastAPI()
 
 @app.post("/whatsapp/wapp-web/{account}/senddReport")
@@ -18,15 +29,16 @@ async def enqueue_report(account: str, request: Request, background_tasks: Backg
     message = data.get("message")
     if not message:
         import random
-        alumno = data.get("nombre_alumno", "Alumno")
+        alumno = format_student_name(data.get("nombre_alumno", "Alumno"))
         tipo = data.get("type_asistance", "REGISTRO")
+        tipo_bold = f"*{tipo}*" # Negrita para WhatsApp
         hora = data.get("timestamp", "")
         
         # Variedad de respuestas para evitar que WhatsApp detecte SPAM por mensajes idénticos
         respuestas = ["OK", "Entendido", "Recibido", "👍", "De acuerdo", "Listo", "Copiado", "Sí", "Conforme"]
         random_resp = random.choice(respuestas)
         
-        message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ 🎓 {alumno} | {tipo}: {hora}\n"
+        message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ 🎓 {alumno} || {tipo_bold}: {hora}\n"
         message += f"✨ Responde {random_resp}"
 
     if not phone:

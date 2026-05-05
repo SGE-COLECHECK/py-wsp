@@ -57,19 +57,37 @@ class WhatsAppUI:
         imgui.begin_child("Sidebar", (sidebar_width, -25), True)
         if imgui.button("🚀 START ALL", (sidebar_width - 20, 35)):
             for name in self.sessions:
-                asyncio.run_coroutine_threadsafe(browser_manager.get_page(name), self.loop)
-                asyncio.run_coroutine_threadsafe(queue_manager.start_worker(name), self.loop)
+                cfg = config_manager.get_client_config(name)
+                if cfg.get("enabled", True):
+                    asyncio.run_coroutine_threadsafe(browser_manager.get_page(name), self.loop)
+                    asyncio.run_coroutine_threadsafe(queue_manager.start_worker(name), self.loop)
         
         imgui.spacing(); imgui.separator(); imgui.spacing()
         for name in self.sessions:
             imgui.push_id(name)
+            
+            # Checkbox para habilitar/deshabilitar
+            cfg = config_manager.get_client_config(name)
+            enabled = cfg.get("enabled", True)
+            c_en, enabled = imgui.checkbox("##enabled", enabled)
+            if c_en:
+                config_manager.set_client_config(name, {"enabled": enabled})
+            
+            imgui.same_line()
+            
             status = browser_manager.get_status(name)
             color = (0.4, 0.4, 0.4, 1.0)
-            if status == "READY": color = (0.1, 0.8, 0.4, 1.0)
+            if not enabled: color = (0.2, 0.2, 0.2, 1.0)
+            elif status == "READY": color = (0.1, 0.8, 0.4, 1.0)
             elif status == "STARTING": color = (1.0, 0.6, 0.0, 1.0)
+            
             draw_list = imgui.get_window_draw_list(); pos = imgui.get_cursor_screen_pos()
             draw_list.add_circle_filled((pos.x + 8, pos.y + 10), 4, imgui.get_color_u32(color))
-            imgui.set_cursor_pos_x(20); imgui.text(name)
+            
+            imgui.set_cursor_pos_x(40) # Espacio para el checkbox y el punto
+            if not enabled: imgui.push_style_color(imgui.Col_.text, (0.5, 0.5, 0.5, 1.0))
+            imgui.text(name)
+            if not enabled: imgui.pop_style_color()
             
             count = self.queue_counts.get(name, 0)
             imgui.same_line(sidebar_width - 50)
@@ -193,13 +211,13 @@ class WhatsAppUI:
         imgui.end_child()
 
         # Barra inferior
-        imgui.set_cursor_pos((0, imgui.get_window_height() - 22))
-        imgui.begin_child("BottomBar", (0, 22), False)
+        imgui.set_cursor_pos((0, imgui.get_window_height() - 25))
+        imgui.begin_child("BottomBar", (0, 25), False)
         imgui.separator()
-        imgui.set_cursor_pos_x(10)
+        imgui.set_cursor_pos_x(15)
         imgui.text_colored((0.1, 0.8, 0.4, 1.0) if queue_manager.is_connected else (1, 0.2, 0.2, 1.0), "REDIS STATUS")
-        imgui.same_line(imgui.get_window_width() - 200)
-        imgui.text_disabled(f"CPU: {self.cpu_usage}% RAM: {int(self.ram_usage)}MB")
+        imgui.same_line(imgui.get_window_width() - 230)
+        imgui.text_disabled(f"CPU: {self.cpu_usage}%  |  RAM: {int(self.ram_usage)}MB")
         imgui.end_child()
 
         # Modales
