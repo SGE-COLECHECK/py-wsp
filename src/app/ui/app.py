@@ -1,6 +1,11 @@
 import os
 import asyncio
 import psutil
+import threading
+import tkinter as tk
+from tkinter import filedialog
+import openpyxl
+import requests
 from imgui_bundle import imgui, immapp, hello_imgui, icons_fontawesome
 from app.core.browser_manager import browser_manager
 from app.core.queue_manager import queue_manager
@@ -21,6 +26,25 @@ class WhatsAppUI:
         self.ram_usage = 0
         self.cpu_usage = 0
         self.process = psutil.Process(os.getpid())
+        
+        # Ycloud Variables
+        self.ycloud_contacts = []
+        self.ycloud_sent_count = 0
+        self.ycloud_failed_count = 0
+        self.ycloud_total_cost_usd = 0.0
+        self.ycloud_is_sending = False
+        self.show_ycloud_config = False
+        
+        # Load configs
+        self.ycloud_api_key = config_manager.get_global("ycloud_api_key", "")
+        self.ycloud_from = config_manager.get_global("ycloud_from", "+51963828458")
+        self.ycloud_url = config_manager.get_global("ycloud_url", "https://api.ycloud.com/v2/whatsapp/messages/sendDirectly")
+        self.ycloud_cost_usd = config_manager.get_global("ycloud_cost_usd", 0.02)
+        self.ycloud_exchange_pen = config_manager.get_global("ycloud_exchange_pen", 3.46)
+        self.ycloud_colegio = config_manager.get_global("ycloud_colegio", "Mi Colegio")
+        self.ycloud_numero = config_manager.get_global("ycloud_numero", "999888777")
+        self.ycloud_template = config_manager.get_global("ycloud_template", "🚨🇨🇴🇱🇪✅ \nEstimados padres de familia 👨‍👩‍👧‍👦:\nEste año, *{Colegio}* viene implementando un sistema de control de *INGRESO* y *SALIDA* de estudiantes mediante credenciales escolares.\n\n📌 Guarde el siguiente número como:\n👉 colecheck – *{Numero}*  (escribir a ese whatsapp)\n\n📩 Luego envíe:\n\n🏫 Colegio: *{Colegio}*\n🎓 Grado y sección: *5-A* \n👦 Estudiante: *Yhon Yucra Castro*\n\n🎫 *Verifique que su hijo(a) lleve siempre su credencial, ya que las notificaciones dependen de su uso al ingresar y salir del colegio.*\n\n💬 Para mantener activo el servicio, responda o reaccione 👍 a los mensajes enviados.")
+
 
     async def update_data(self):
         while True:
@@ -36,6 +60,123 @@ class WhatsAppUI:
                 self.cpu_usage = psutil.cpu_percent(interval=None)
             except: pass
             await asyncio.sleep(1)
+
+    def load_excel(self):
+        def _load():
+            root = tk.Tk()
+            root.withdraw()
+            file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+            root.destroy()
+            if not file_path:
+                return
+            
+            try:
+                wb = openpyxl.load_workbook(file_path, data_only=True)
+                ws = wb.active
+                
+                # Buscar encabezados
+                headers = {}
+                for col_idx, cell in enumerate(ws[1], start=1):
+                    if cell.value:
+                        headers[cell.value.strip().lower()] = col_idx
+                
+                new_contacts = []
+                for row_idx in range(2, ws.max_row + 1):
+                    def get_val(key):
+                        for h in headers:
+                            if key in h:
+                                return str(ws.cell(row=row_idx, column=headers[h]).value or "")
+                        return ""
+                    
+                    whatsapp = get_val("whatsapp 1") or get_val("whassap 1") or get_val("whatsapp")
+                    if whatsapp and whatsapp != "None":
+                        whatsapp = "".join(filter(str.isdigit, whatsapp))
+                        if not whatsapp.startswith("51"):
+                            whatsapp = "51" + whatsapp
+                        whatsapp = "+" + whatsapp
+                        
+                        estudiante = get_val("estudiante") or get_val("nombre")
+                        grado = get_val("grado")
+                        seccion = get_val("secci")
+                        nro = get_val("n°") or get_val("nro") or get_val("no")
+                        
+                        new_contacts.append({
+                            "nro": nro,
+                            "estudiante": estudiante,
+                            "grado": grado,
+                            "seccion": seccion,
+                            "whatsapp": whatsapp,
+                            "status": "pending"
+                        })
+                self.ycloud_contacts = new_contacts
+                self.ycloud_sent_count = 0
+                self.ycloud_failed_count = 0
+            except Exception as e:
+                print(f"Error loading Excel: {e}")
+                
+        threading.Thread(target=_load, daemon=True).start()
+
+    def send_ycloud_messages(self):
+        if self.ycloud_is_sending: return
+        self.ycloud_is_sending = True
+        self.ycloud_sent_count = 0
+        self.ycloud_failed_count = 0
+        self.ycloud_total_cost_usd = 0.0
+        
+        config_manager.settings["global"]["ycloud_api_key"] = self.ycloud_api_key
+        config_manager.settings["global"]["ycloud_from"] = self.ycloud_from
+        config_manager.settings["global"]["ycloud_url"] = self.ycloud_url
+        config_manager.settings["global"]["ycloud_cost_usd"] = self.ycloud_cost_usd
+        config_manager.settings["global"]["ycloud_exchange_pen"] = self.ycloud_exchange_pen
+        config_manager.settings["global"]["ycloud_colegio"] = self.ycloud_colegio
+        config_manager.settings["global"]["ycloud_numero"] = self.ycloud_numero
+        config_manager.settings["global"]["ycloud_template"] = self.ycloud_template
+        config_manager.save()
+        
+        def _send():
+            headers = {
+                "X-API-Key": self.ycloud_api_key,
+                "accept": "application/json",
+                "content-type": "application/json"
+            }
+            
+            for contact in self.ycloud_contacts:
+                if contact["status"] == "sent": continue
+                
+                body_text = self.ycloud_template.replace("{Estudiante}", contact["estudiante"])
+                body_text = body_text.replace("{Grado}", contact["grado"])
+                body_text = body_text.replace("{Sección}", contact["seccion"])
+                body_text = body_text.replace("{Colegio}", self.ycloud_colegio)
+                body_text = body_text.replace("{Numero}", self.ycloud_numero)
+                
+                payload = {
+                    "type": "text",
+                    "text": {
+                        "body": body_text,
+                        "preview_url": False
+                    },
+                    "from": self.ycloud_from,
+                    "to": contact["whatsapp"]
+                }
+                
+                try:
+                    res = requests.post(self.ycloud_url, json=payload, headers=headers, timeout=10)
+                    if res.status_code in [200, 202]:
+                        contact["status"] = "sent"
+                        self.ycloud_sent_count += 1
+                        self.ycloud_total_cost_usd += self.ycloud_cost_usd
+                    else:
+                        contact["status"] = "failed"
+                        self.ycloud_failed_count += 1
+                        print(f"Failed to send to {contact['whatsapp']}: {res.text}")
+                except Exception as e:
+                    contact["status"] = "failed"
+                    self.ycloud_failed_count += 1
+                    print(f"Error sending to {contact['whatsapp']}: {e}")
+                    
+            self.ycloud_is_sending = False
+            
+        threading.Thread(target=_send, daemon=True).start()
 
     def draw(self):
         if not hasattr(self, 'update_task_started'):
@@ -154,6 +295,9 @@ class WhatsAppUI:
         imgui.same_line()
         if imgui.button(f"{icons_fontawesome.ICON_FA_COGS}  GLOBAL CONFIG"):
             self.active_tab = "CONFIG"
+        imgui.same_line()
+        if imgui.button(f"{icons_fontawesome.ICON_FA_PAPER_PLANE}  YCLOUD"):
+            self.active_tab = "YCLOUD"
         imgui.separator()
 
         if self.active_tab == "LOGS":
@@ -299,6 +443,60 @@ class WhatsAppUI:
                 config_manager.settings["global"]["override_welcome"] = override_val
                 config_manager.settings["global"]["custom_welcome_msg"] = custom_msg
 
+        elif self.active_tab == "YCLOUD":
+            if imgui.button(f"{icons_fontawesome.ICON_FA_COG}  YCLOUD CONFIGURATION"):
+                self.show_ycloud_config = True
+                
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "YCLOUD EXCEL DATA & SENDING")
+            
+            if imgui.button(f"{icons_fontawesome.ICON_FA_FILE_EXCEL}  LOAD EXCEL"):
+                self.load_excel()
+            imgui.same_line()
+            
+            if self.ycloud_is_sending:
+                imgui.text_colored((1.0, 0.6, 0.0, 1.0), "Sending in progress...")
+            else:
+                if imgui.button(f"{icons_fontawesome.ICON_FA_PAPER_PLANE}  START SENDING"):
+                    self.send_ycloud_messages()
+            
+            total_loaded = len(self.ycloud_contacts)
+            cost_pen = self.ycloud_total_cost_usd * self.ycloud_exchange_pen
+            imgui.text(f"Loaded: {total_loaded} | ")
+            imgui.same_line(); imgui.text_colored((0.2, 0.9, 0.5, 1.0), f"Sent: {self.ycloud_sent_count} | ")
+            imgui.same_line(); imgui.text_colored((1.0, 0.2, 0.2, 1.0), f"Failed: {self.ycloud_failed_count} | ")
+            imgui.same_line(); imgui.text_colored((1.0, 0.8, 0.2, 1.0), f"Cost: ${self.ycloud_total_cost_usd:.2f} USD (S/ {cost_pen:.2f} PEN)")
+            
+            imgui.spacing()
+            imgui.begin_child("YcloudTable", (0, 0), True)
+            if imgui.begin_table("YCTable", 6, imgui.TableFlags_.resizable | imgui.TableFlags_.scroll_y | imgui.TableFlags_.borders):
+                imgui.table_setup_column("N°", imgui.TableColumnFlags_.width_fixed, 30)
+                imgui.table_setup_column("Estudiante")
+                imgui.table_setup_column("Grado")
+                imgui.table_setup_column("Sección")
+                imgui.table_setup_column("Whatsapp")
+                imgui.table_setup_column("Status", imgui.TableColumnFlags_.width_fixed, 60)
+                imgui.table_headers_row()
+                
+                for contact in self.ycloud_contacts:
+                    imgui.table_next_row()
+                    imgui.table_next_column(); imgui.text(str(contact["nro"]))
+                    imgui.table_next_column(); imgui.text(str(contact["estudiante"]))
+                    imgui.table_next_column(); imgui.text(str(contact["grado"]))
+                    imgui.table_next_column(); imgui.text(str(contact["seccion"]))
+                    imgui.table_next_column(); imgui.text(str(contact["whatsapp"]))
+                    imgui.table_next_column()
+                    status = contact["status"]
+                    if status == "pending":
+                        imgui.text_colored((0.5, 0.5, 0.5, 1.0), "Pending")
+                    elif status == "sent":
+                        imgui.text_colored((0.2, 0.9, 0.5, 1.0), "Sent")
+                    else:
+                        imgui.text_colored((1.0, 0.2, 0.2, 1.0), "Failed")
+                
+                imgui.end_table()
+            imgui.end_child()
+
         imgui.end_child()
 
         # Barra inferior (Subida a 60px para evitar cortes en Windows)
@@ -359,6 +557,54 @@ class WhatsAppUI:
             if imgui.button("Save & Close"):
                 config_manager.set_client_config(name, {"headless": self.headless_val})
                 imgui.close_current_popup()
+            imgui.end_popup()
+
+        if self.show_ycloud_config:
+            imgui.open_popup("Ycloud Configuration")
+            self.show_ycloud_config = False
+        
+        # Le damos un tamaño inicial razonable al popup de Ycloud
+        imgui.set_next_window_size((600, 500), imgui.Cond_.first_use_ever)
+        if imgui.begin_popup_modal("Ycloud Configuration", True, imgui.WindowFlags_.no_saved_settings)[0]:
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "1. YCLOUD API CONFIGURATION")
+            
+            c1, self.ycloud_api_key = imgui.input_text("API Key", self.ycloud_api_key)
+            c2, self.ycloud_url = imgui.input_text("API URL", self.ycloud_url)
+            c3, self.ycloud_from = imgui.input_text("From Number", self.ycloud_from)
+            c4, self.ycloud_cost_usd = imgui.input_float("Cost per Msg (USD)", self.ycloud_cost_usd, format="%.3f")
+            c5, self.ycloud_exchange_pen = imgui.input_float("Exchange Rate (PEN)", self.ycloud_exchange_pen, format="%.2f")
+            
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "2. GLOBAL VARIABLES")
+            c_col, self.ycloud_colegio = imgui.input_text("Colegio", self.ycloud_colegio)
+            c_num, self.ycloud_numero = imgui.input_text("Número", self.ycloud_numero)
+            
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "3. MESSAGE TEMPLATE")
+            imgui.text_disabled("Use variables: {Estudiante}, {Grado}, {Sección}, {Colegio}, {Numero}")
+            
+            c6, self.ycloud_template = imgui.input_text_multiline("##ycloudtpl", self.ycloud_template, (imgui.get_content_region_avail().x, 150))
+            
+            if c1 or c2 or c3 or c4 or c5 or c_col or c_num or c6:
+                config_manager.settings["global"].update({
+                    "ycloud_api_key": self.ycloud_api_key,
+                    "ycloud_url": self.ycloud_url,
+                    "ycloud_from": self.ycloud_from,
+                    "ycloud_cost_usd": self.ycloud_cost_usd,
+                    "ycloud_exchange_pen": self.ycloud_exchange_pen,
+                    "ycloud_colegio": self.ycloud_colegio,
+                    "ycloud_numero": self.ycloud_numero,
+                    "ycloud_template": self.ycloud_template
+                })
+            
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            if imgui.button("SAVE & CLOSE", (150, 30)):
+                config_manager.save()
+                imgui.close_current_popup()
+            imgui.same_line()
+            if imgui.button("CANCEL", (100, 30)):
+                imgui.close_current_popup()
+                
             imgui.end_popup()
 
         imgui.end()

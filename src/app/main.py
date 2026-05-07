@@ -105,14 +105,14 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
         # Permitir variables opcionales en el mensaje estático
         message = custom_msg.replace("{usuario}", usuario).replace("{contrasena}", contrasena).replace("{url}", url).replace("{fecha}", today)
     else:
-        message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ *[ {today} ]*\n\n"
-        message += f"👋 ¡Bienvenido/a!\n"
+        message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ *[ {today} ]*👋 ¡Bienvenido/a!\n"
         message += f"Le damos la bienvenida al sistema de seguimiento académico 📚\n\n"
         message += f"🔔 *Importante:*\n"
-        message += f"A través de este medio podrá recibir información relevante sobre la asistencia y actividades académicas.\n\n"
-        message += f"📌 Manténgase atento/a a las notificaciones.\n\n"
-        message += f"👍 Puede reaccionar a este mensaje para confirmar la recepción.\n\n"
-        message += f"🎓 *Equipo ColeCheck*"
+        message += f"A través de este medio recibirá notificaciones sobre asistencia y actividades académicas.\n\n"
+        message += f"🎫 *Verifique que su hijo(a) lleve siempre su credencial, ya que las notificaciones dependen de su uso al ingresar y salir del colegio.*\n\n"
+        message += f"📌 Manténgase atento/a a las notificaciones enviadas.\n\n"
+        message += f"👍 Puede reaccionar o responder a los mensajes para mantener activo el servicio.\n\n"
+        message += f"🎓 Equipo ColeCheck"
 
     payload = {
         "type": "message", 
