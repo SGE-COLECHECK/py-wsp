@@ -7,3 +7,4 @@ redis
 hiredis
 psutil
 requests
+openpyxl
