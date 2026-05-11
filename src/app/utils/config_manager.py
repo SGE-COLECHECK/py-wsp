@@ -18,6 +18,7 @@ class ConfigManager:
                     # Asegurar que las nuevas claves existan
                     if "batch_size" not in data["global"]: data["global"]["batch_size"] = 20
                     if "batch_pause" not in data["global"]: data["global"]["batch_pause"] = 60
+                    if "send_mode" not in data["global"]: data["global"]["send_mode"] = "typing"
                     if "ycloud_api_key" not in data["global"]: data["global"]["ycloud_api_key"] = ""
                     if "ycloud_from" not in data["global"]: data["global"]["ycloud_from"] = "+51963828458"
                     if "ycloud_url" not in data["global"]: data["global"]["ycloud_url"] = "https://api.ycloud.com/v2/whatsapp/messages/sendDirectly"

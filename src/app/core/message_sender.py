@@ -5,6 +5,7 @@ import re
 import random
 from app.utils.logger import logger
 from app.core.browser_manager import browser_manager
+from app.utils.config_manager import config_manager
 
 async def add_contact_task(account: str, data: dict):
     phone = data.get("phone", "")
@@ -60,7 +61,16 @@ async def add_contact_task(account: str, data: dict):
         await phone_field.click(force=True)
         await asyncio.sleep(0.5)
         await phone_field.fill(phone)
-        await asyncio.sleep(1)
+        await asyncio.sleep(1.5)
+
+        # NUEVO: Detección de contacto duplicado
+        already_exists = await page.get_by_text("Este número de teléfono ya está en tus contactos").is_visible()
+        if already_exists:
+            logger.info(f"ℹ️ El contacto {phone} ya existe. Cancelando tarea.", account=account)
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+            await page.keyboard.press("Escape")
+            return
 
         # PASO 5: Switch Sincronizar
         # logger.debug("[ADD 5/6] Verificando switch de sincronización...", account=account)
@@ -131,6 +141,7 @@ async def add_contact_task(account: str, data: dict):
         raise e
 
 async def send_report_task(account: str, data: dict):
+    start_task_time = time.time()
     phone = data.get("phone", "")
     message = data.get("message", "")
     
@@ -152,8 +163,11 @@ async def send_report_task(account: str, data: dict):
             
             await page.wait_for_selector("#side", timeout=60000)
 
-            # --- PASO 1 ---
-            # logger.debug("[PASO 1] Buscando y limpiando el cuadro de búsqueda...", account=account)
+            # Limpiar cualquier popup o modal que haya quedado abierto
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.2)
+
+            # --- PASO 1: Buscar el cuadro de búsqueda ---
             search_selectors = [
                 'div[contenteditable="true"][data-tab="3"]',
                 'div[contenteditable="true"][title*="búsqueda"]',
@@ -169,27 +183,31 @@ async def send_report_task(account: str, data: dict):
                 '[aria-label*="Search"]'
             ]
             
-            search_box = None
             try:
                 search_box = await page.wait_for_selector(", ".join(search_selectors), timeout=15000)
-            except:
-                raise Exception("No se encontró el cuadro de búsqueda.")
-
+            except Exception as e:
+                os.makedirs("data/errors", exist_ok=True)
+                path = f"data/errors/search_fail_{account}_{int(time.time())}.png"
+                await page.screenshot(path=path)
+                logger.error(f"❌ No se encontró el buscador. Captura: {path}")
+                raise e
+            
+            # Clic + limpiar lo que haya escrito antes
             await search_box.click()
-            await asyncio.sleep(0.2)
-            await search_box.click(click_count=3)
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)
+            await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
-            # logger.debug("[PASO 1] ✅ Cuadro de búsqueda limpio.", account=account)
+            await asyncio.sleep(0.1)
 
             # --- PASO 2 ---
-            # logger.debug(f"[PASO 2] Escribiendo el número y presionando Enter: {formatted_phone}", account=account)
-            await search_box.type(formatted_phone, delay=50) 
+            search_start = time.time()
+            await search_box.type(formatted_phone, delay=25) 
             await page.keyboard.press("Enter")
 
             # --- PASO 3 ---
-            # logger.debug("[PASO 3] Verificando si se abrió el chat...", account=account)
-            await asyncio.sleep(random.uniform(0.5, 1.5))
+            # Espera humana para que cargue el chat
+            await asyncio.sleep(0.5) 
+            t_search = time.time() - search_start
             
             no_whatsapp_found = await page.evaluate('''() => {
                 const text = document.body.innerText;
@@ -234,42 +252,69 @@ async def send_report_task(account: str, data: dict):
                     raise Exception("No se encontró el cuadro de mensaje.")
 
             await msg_box.click()
-            await asyncio.sleep(0.2)
-            # logger.debug("[PASO 4] ✅ Cuadro de mensaje activo.", account=account)
-
+            await asyncio.sleep(0.1)
+            
             # --- PASO 4.5 ---
-            # logger.debug("[PASO 4.5] Limpiando borradores...", account=account)
             await page.keyboard.press("Control+A")
             await asyncio.sleep(0.05)
             await page.keyboard.press("Backspace")
             await asyncio.sleep(0.05)
 
-            # --- PASO 5 ---
-            # logger.debug("[PASO 5] Escribiendo el mensaje de forma fluida...", account=account)
-            lines = message.split('\n')
-            typing_delay = 15 
+            # --- PASO 5: Escribir mensaje ---
+            typing_start = time.time()
             
-            for i, line in enumerate(lines):
-                if len(line) > 0:
-                    await page.keyboard.type(line, delay=typing_delay)
-                if i < len(lines) - 1:
-                    await page.keyboard.press("Shift+Enter")
-                    
-            # logger.debug("✅ Mensaje escrito.", account=account)
+            send_mode = config_manager.get_global("send_mode", "typing")
+            
+            if send_mode == "paste":
+                # MODO PASTE: Copiar y pegar instantáneo
+                await page.evaluate('''(text) => {
+                    const dt = new DataTransfer();
+                    dt.setData("text/plain", text);
+                    const pasteEvent = new ClipboardEvent("paste", {
+                        clipboardData: dt,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    document.activeElement.dispatchEvent(pasteEvent);
+                }''', message)
+                await asyncio.sleep(0.2)
+            else:
+                # MODO TYPING: Teclear letra por letra
+                typing_delay = config_manager.get_global("typing_delay", 10)
+                lines = message.split('\n')
+                for i, line in enumerate(lines):
+                    if len(line) > 0:
+                        await page.keyboard.type(line, delay=typing_delay)
+                    if i < len(lines) - 1:
+                        await page.keyboard.press("Shift+Enter")
 
-            # --- PASO 6 ---
-            # logger.debug("Enviando mensaje...", account=account)
+            # logger.debug("✅ Mensaje escrito.", account=account)
+            t_typing = time.time() - typing_start
+            t_prep = search_start - start_task_time
+            label = data.get("label", "MENSAJE")
+            total_prep = time.time() - start_task_time
+            
+            logger.info(f"⏱️ {label} | ⚙️ Prep: {t_prep:.2f}s | 🔍 Búsq: {t_search:.2f}s | ⌨️ Escr: {t_typing:.2f}s | 🚀 Total: {total_prep:.2f}s", account=account)
+
+            # --- PASO 6: Enviar ---
+            pre_min = config_manager.get_global("pre_send_min", 1.0)
+            pre_max = config_manager.get_global("pre_send_max", 3.0)
+            pre_delay = random.uniform(pre_min, pre_max)
             
             if data.get("dry_run"):
-                logger.warn("🧪 MODO DRY-RUN: Simulado exitosamente, omitiendo 'Enter'.", account=account)
+                logger.warn(f"🧪 DRY-RUN: OK (delay {pre_delay:.1f}s omitido)", account=account)
             else:
+                await asyncio.sleep(pre_delay)
                 await page.keyboard.press("Enter")
-                await asyncio.sleep(0.5)
-                logger.read(f"Enviado a {formatted_phone}", account=account)
+                await asyncio.sleep(0.3)
+                logger.read(f"Enviado a {formatted_phone} (delay: {pre_delay:.1f}s)", account=account)
                 logger.increment_sent(account)
             
             await page.keyboard.press("Escape")
             # logger.debug("[PASO 6] Chat cerrado.", account=account)
+            
+            total_time = time.time() - start_task_time
+            logger.info(f"🏁 Tarea completada exitosamente en {total_time:.2f}s", account=account)
             return
 
         except Exception as e:

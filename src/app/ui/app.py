@@ -392,8 +392,37 @@ class WhatsAppUI:
                 })
             
             if imgui.button("SAVE CONFIG"):
-                config_manager.save() # Guarda en el JSON permanentemente
+                config_manager.save()
                 logger.success("Configuración guardada en config.json")
+            
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "1.5 SEND MODE")
+            
+            current_mode = config_manager.get_global("send_mode", "typing")
+            is_typing = current_mode == "typing"
+            is_paste = current_mode == "paste"
+            
+            if imgui.radio_button("Typing (teclear letra por letra)", is_typing):
+                config_manager.settings["global"]["send_mode"] = "typing"
+            imgui.same_line()
+            if imgui.radio_button("Paste (copiar y pegar)", is_paste):
+                config_manager.settings["global"]["send_mode"] = "paste"
+            
+            if current_mode == "typing":
+                t_delay = config_manager.get_global("typing_delay", 10)
+                c_td, t_delay = imgui.slider_int("Typing Delay (ms)", t_delay, 1, 50)
+                if c_td:
+                    config_manager.settings["global"]["typing_delay"] = t_delay
+            
+            imgui.spacing()
+            imgui.text_disabled("Delay antes de enviar (random entre min y max):")
+            ps_min = config_manager.get_global("pre_send_min", 1.0)
+            ps_max = config_manager.get_global("pre_send_max", 3.0)
+            c_psmin, ps_min = imgui.slider_float("Pre-Send Min (s)", ps_min, 0.0, 5.0, "%.1f")
+            c_psmax, ps_max = imgui.slider_float("Pre-Send Max (s)", ps_max, 0.0, 10.0, "%.1f")
+            if c_psmin or c_psmax:
+                config_manager.settings["global"]["pre_send_min"] = ps_min
+                config_manager.settings["global"]["pre_send_max"] = ps_max
             
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_SYNC}  2. QUEUE ORCHESTRATOR")

@@ -46,7 +46,7 @@ async def enqueue_report(account: str, request: Request, background_tasks: Backg
         return {"status": "error", "message": "Falta el teléfono"}
 
     # Encolar para procesamiento asíncrono en Redis
-    payload = {"phone": phone, "message": message}
+    payload = {"phone": phone, "message": message, "label": "REPORTE DIARIO"}
     background_tasks.add_task(queue_manager.enqueue, account, payload)
     
     return {"status": "enqueued", "account": account, "target": phone}
@@ -118,6 +118,7 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
         "type": "message", 
         "phone": telefono,
         "message": message,
+        "label": "BIENVENIDA",
         "dry_run": data.get("dry_run", False)
     }
     
@@ -184,6 +185,7 @@ async def send_registration_link(account: str, request: Request, background_task
         "type": "message",
         "phone": phone_clean,
         "message": final_message,
+        "label": "LINK REGISTRO",
         "dry_run": data.get("dry_run", False)
     }
 
@@ -246,6 +248,7 @@ async def send_credentials(account: str, request: Request, background_tasks: Bac
         "type": "message",
         "phone": phone_clean,
         "message": final_message,
+        "label": "CREDENCIALES",
         "dry_run": data.get("dry_run", False)
     }
 
@@ -323,6 +326,7 @@ async def send_weekly_report(account: str, request: Request, background_tasks: B
         "type": "message",
         "phone": telefono,
         "message": message,
+        "label": "REPORTE SEMANAL",
         "dry_run": data.get("dry_run", False)
     }
     
