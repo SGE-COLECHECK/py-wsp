@@ -127,13 +127,13 @@ async def add_contact_task(account: str, data: dict):
             # Activar switch de sincronización
             logger.debug("[ADD 6/7] Activando switch de sincronización...", account=account)
             try:
-                # Intentar con role="switch"
-                sync_switch = page.locator('[role="switch"]').first
+                # Intentar con el selector específico proporcionado y fallback de role="switch"
+                sync_switch = page.locator('div.x1c4vz4f.xs83m0k.xdl72j9.x1g77sc7.xeuugli.x2lwn1j.xozqiw3.x1oa3qoh.x12fk4p8.xymharo, [role="switch"]').first
                 sw_count = await sync_switch.count()
                 logger.debug(f"[ADD 6/7] Switches encontrados: {sw_count}", account=account)
                 
                 if sw_count > 0:
-                    await sync_switch.wait_for(state="visible", timeout=3000)
+                    await sync_switch.wait_for(state="visible", timeout=5000)
                     is_checked = await sync_switch.get_attribute("aria-checked")
                     logger.debug(f"[ADD 6/7] Switch aria-checked: {is_checked}", account=account)
                     
@@ -167,12 +167,13 @@ async def add_contact_task(account: str, data: dict):
         if data.get("dry_run"):
             logger.warn("🧪 MODO DRY-RUN: Simulado, omitiendo guardar.", account=account)
         else:
-            save_btn = page.locator('[data-testid="save-contact-btn"]')
+            # Selector principal y fallback para el botón de guardar
+            save_btn = page.locator('[data-testid="save-contact-btn"], [aria-label="Guardar contacto"], div[role="button"]:has-text("Guardar")')
             saved = False
             
-            # INTENTO 1: Esperar hasta 6 segundos a que aparezca el botón
+            # INTENTO 1: Esperar hasta 10 segundos a que aparezca el botón
             try:
-                await save_btn.wait_for(state="visible", timeout=6000)
+                await save_btn.wait_for(state="visible", timeout=10000)
                 logger.debug("[ADD 7/7] Botón visible. Esperando 3s para asegurar guardado...", account=account)
                 await asyncio.sleep(3)
                 await save_btn.click()
