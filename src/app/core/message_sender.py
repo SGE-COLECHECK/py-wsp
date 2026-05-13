@@ -166,9 +166,11 @@ async def add_contact_task(account: str, data: dict):
             # INTENTO 1: Esperar hasta 6 segundos a que aparezca el botón
             try:
                 await save_btn.wait_for(state="visible", timeout=6000)
+                logger.debug("[ADD 7/7] Botón visible. Esperando 3s para asegurar guardado...", account=account)
+                await asyncio.sleep(3)
                 await save_btn.click()
                 logger.debug("[ADD 7/7] ✅ Intento 1: clic en save-contact-btn", account=account)
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
                 
                 still_in_form = await page.get_by_text("Nuevo contacto", exact=True).is_visible()
                 if not still_in_form:
