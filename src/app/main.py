@@ -351,6 +351,195 @@ async def send_weekly_report(account: str, request: Request, background_tasks: B
         },
         "status": "queued"
     }
+@app.post("/whatsapp/wapp-web/{account}/sendAgenda")
+async def send_agenda(account: str, request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    telefono = data.get("telefono_padre")
+    titulo = data.get("titulo", "Nueva tarea registrada")
+    contenido = data.get("contenido")
+    curso = data.get("curso")
+    docente = data.get("docente")
+    enlace = data.get("enlace", "")
+
+    if not telefono or not contenido or not curso:
+        logger.error("Faltan datos obligatorios (telefono_padre, contenido, curso)", account=account)
+        return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre, contenido, curso)"}
+
+    phone_clean = "".join(filter(str.isdigit, str(telefono)))
+    if len(phone_clean) != 9:
+        return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
+
+    lines = [
+        "📘 *AGENDA ESCOLAR* 🇨​​​​​🇴​​​​​🇱​​​​​🇪✅",
+        "",
+        f"📝 *{titulo}*",
+        "",
+        contenido,
+        "",
+        f"📚 {curso}",
+    ]
+    if docente:
+        lines.append(f"👨🏫 {docente}")
+    if enlace:
+        lines += ["", f"🔗 {enlace}"]
+    lines += ["", "🎓 *Equipo ColeCheck*"]
+
+    final_message = "\n".join(lines)
+
+    payload = {
+        "type": "message",
+        "phone": phone_clean,
+        "message": final_message,
+        "label": "AGENDA",
+        "dry_run": data.get("dry_run", False)
+    }
+
+    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    logger.success(f"Agenda encolada para {phone_clean}", account=account)
+
+    return {
+        "success": True,
+        "message": "Agenda escolar agregada a la cola exitosamente",
+        "queueId": f"{account}-agenda-{phone_clean}",
+        "sessionName": account,
+        "data": {
+            "telefono": phone_clean,
+            "titulo": titulo,
+            "curso": curso,
+            "docente": docente or "",
+        },
+        "status": "queued",
+    }
+
+@app.post("/whatsapp/wapp-web/{account}/sendComunicado")
+async def send_comunicado(account: str, request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    telefono = data.get("telefono_padre")
+    titulo = data.get("titulo")
+    contenido = data.get("contenido")
+    area = data.get("area", "Dirección")
+    enlace = data.get("enlace", "")
+    colegio = data.get("colegio", "Equipo ColeCheck")
+
+    if not telefono or not titulo or not contenido:
+        logger.error("Faltan datos obligatorios (telefono_padre, titulo, contenido)", account=account)
+        return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre, titulo, contenido)"}
+
+    phone_clean = "".join(filter(str.isdigit, str(telefono)))
+    if len(phone_clean) != 9:
+        return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
+
+    lines = [
+        "📢 *COMUNICADO* 🇨​​​​​🇴​​​​​🇱​​​​​🇪✅",
+        "",
+        f"📌 *{titulo}*",
+        "",
+        contenido,
+        "",
+        f"🏫 {area}",
+    ]
+    if enlace:
+        lines += ["", f"🔗 {enlace}"]
+    lines += ["", f"🎓 *{colegio}*"]
+
+    final_message = "\n".join(lines)
+
+    payload = {
+        "type": "message",
+        "phone": phone_clean,
+        "message": final_message,
+        "label": "COMUNICADO",
+        "dry_run": data.get("dry_run", False)
+    }
+
+    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    logger.success(f"Comunicado encolado para {phone_clean}", account=account)
+
+    return {
+        "success": True,
+        "message": "Comunicado agregado a la cola exitosamente",
+        "queueId": f"{account}-comunicado-{phone_clean}",
+        "sessionName": account,
+        "data": {
+            "telefono": phone_clean,
+            "titulo": titulo,
+            "area": area,
+            "colegio": colegio,
+        },
+        "status": "queued",
+    }
+
+@app.post("/whatsapp/wapp-web/{account}/sendWarning")
+async def send_warning(account: str, request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    telefono = data.get("telefono_padre")
+    titulo = data.get("titulo")
+    contenido = data.get("contenido")
+    reportado_por = data.get("reportado_por")
+    area = data.get("area", "Tutoría")
+    enlace = data.get("enlace", "")
+    colegio = data.get("colegio", "Equipo ColeCheck")
+    gravedad = data.get("gravedad", "leve")  # leve, moderado, grave
+
+    if not telefono or not titulo or not contenido:
+        logger.error("Faltan datos obligatorios (telefono_padre, titulo, contenido)", account=account)
+        return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre, titulo, contenido)"}
+
+    phone_clean = "".join(filter(str.isdigit, str(telefono)))
+    if len(phone_clean) != 9:
+        return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
+
+    # Emoji de gravedad
+    gravedad_map = {
+        "leve": "🟡",
+        "moderado": "🟠",
+        "grave": "🔴"
+    }
+    gravedad_emoji = gravedad_map.get(gravedad.lower(), "🟠")
+
+    lines = [
+        f"{gravedad_emoji} *LLAMADO DE ATENCIÓN* 🇨​​​​​🇴​​​​​🇱​​​​​🇪✅",
+        "",
+        f"⚠️ *{titulo}*",
+        "",
+        contenido,
+        "",
+    ]
+    if reportado_por:
+        lines.append(f"👨🏫 {reportado_por}")
+    lines.append(f"🏫 {area}")
+    if enlace:
+        lines += ["", f"🔗 {enlace}"]
+    lines += ["", f"🎓 *{colegio}*"]
+
+    final_message = "\n".join(lines)
+
+    payload = {
+        "type": "message",
+        "phone": phone_clean,
+        "message": final_message,
+        "label": "LLAMADO ATENCIÓN",
+        "dry_run": data.get("dry_run", False)
+    }
+
+    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    logger.success(f"Llamado de atención encolado para {phone_clean}", account=account)
+
+    return {
+        "success": True,
+        "message": "Llamado de atención agregado a la cola exitosamente",
+        "queueId": f"{account}-warning-{phone_clean}",
+        "sessionName": account,
+        "data": {
+            "telefono": phone_clean,
+            "titulo": titulo,
+            "reportado_por": reportado_por or "",
+            "area": area,
+            "gravedad": gravedad,
+            "colegio": colegio,
+        },
+        "status": "queued",
+    }
 
 @app.get("/health")
 async def health():

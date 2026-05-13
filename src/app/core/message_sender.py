@@ -10,8 +10,8 @@ from app.utils.config_manager import config_manager
 async def add_contact_task(account: str, data: dict):
     phone = data.get("phone", "")
     name = data.get("name", "")
+    start_time = time.time()
     
-    # logger.info("=== INICIANDO TAREA ESPECIAL: Añadir Contacto ===", account=account)
     logger.info(f"👤 Añadiendo contacto: {name} ({phone})", account=account)
     
     page = await browser_manager.get_page(account)
@@ -22,121 +22,206 @@ async def add_contact_task(account: str, data: dict):
 
     try:
         # PASO 1: Nuevo Chat
-        # logger.debug("[ADD 1/6] Buscando botón 'Nuevo chat'...", account=account)
-        # Intentamos varios iconos comunes de nuevo chat
+        logger.debug("[ADD 1/7] Abriendo 'Nuevo chat'...", account=account)
         new_chat_btn = page.locator('button[aria-label*="chat"], [data-icon="new-chat-outline"], [data-icon="chat"]').first
         await new_chat_btn.wait_for(state="visible", timeout=8000)
         await new_chat_btn.click()
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1)
 
-        # PASO 2: Nuevo Contacto (Hacer clic en la fila del menú)
-        # logger.debug("[ADD 2/6] Buscando opción 'Nuevo contacto' en la lista...", account=account)
-        # En tu captura es una fila que dice "Nuevo contacto"
+        # PASO 2: Nuevo Contacto
+        logger.debug("[ADD 2/7] Seleccionando 'Nuevo contacto'...", account=account)
         new_contact_row = page.get_by_text("Nuevo contacto", exact=False).first
         await new_contact_row.wait_for(state="visible", timeout=5000)
         await new_contact_row.click()
-        await asyncio.sleep(2)
+        await asyncio.sleep(1.5)
 
         # PASO 3: Rellenar Nombre
-        # logger.debug("[ADD 3/6] Rellenando campo de nombre...", account=account)
-        # El primer cuadro editable en el modal de contacto es siempre el Nombre
+        logger.debug(f"[ADD 3/7] Escribiendo nombre: {name}", account=account)
         name_field = page.locator('div[contenteditable="true"]').first
         await name_field.wait_for(state="visible", timeout=8000)
         await name_field.click()
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
         await page.keyboard.press("Control+A")
         await page.keyboard.press("Backspace")
-        await page.keyboard.type(name, delay=60)
-        await asyncio.sleep(0.5)
+        await page.keyboard.type(name, delay=50)
+        await asyncio.sleep(0.3)
 
         # PASO 4: Rellenar Teléfono
-        # logger.debug("[ADD 4/6] Rellenando campo de teléfono...", account=account)
-        # Intentamos encontrar el input que está después del texto "Teléfono"
+        logger.debug(f"[ADD 4/7] Escribiendo teléfono: {phone}", account=account)
         phone_field = page.locator('div').filter(has_text=re.compile(r"^Teléfono$")).locator('..').locator('input').first
         if not await phone_field.count():
-            # Fallback 2: El último input de tipo texto dentro del diálogo
-            phone_field = page.locator('div[role="dialog"] input[type="text"]').last
+            # Fallback: buscar cualquier input de texto visible en el panel
+            phone_field = page.locator('input[type="text"]').last
         
         await phone_field.wait_for(state="visible", timeout=5000)
         await phone_field.click(force=True)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
         await phone_field.fill(phone)
-        await asyncio.sleep(1.5)
 
-        # NUEVO: Detección de contacto duplicado
-        already_exists = await page.get_by_text("Este número de teléfono ya está en tus contactos").is_visible()
-        if already_exists:
-            logger.info(f"ℹ️ El contacto {phone} ya existe. Cancelando tarea.", account=account)
+        # PASO 5: Esperar respuesta de WhatsApp con polling inteligente
+        # WhatsApp puede mostrar 4 estados tras ingresar el número:
+        #   A) "ya está en tus contactos" → CANCELAR
+        #   B) "no está en WhatsApp" → CANCELAR (no guardar)
+        #   C) "Sincronizar contacto con el teléfono" (tiene WhatsApp) → SYNC + GUARDAR
+        #   D) Ningún mensaje especial → solo GUARDAR
+        logger.debug("[ADD 5/7] Esperando respuesta de WhatsApp...", account=account)
+        
+        phone_status = "new"
+        max_wait = 5.0
+        poll_interval = 0.4
+        elapsed = 0.0
+        
+        await asyncio.sleep(0.8)
+        
+        while elapsed < max_wait:
+            # Caso A: Ya existe en contactos
+            already_in_contacts = await page.get_by_text("ya está en tus contactos").is_visible()
+            if already_in_contacts:
+                phone_status = "duplicate"
+                break
+            
+            # Caso B: No está en WhatsApp
+            not_on_whatsapp = await page.get_by_text("no está en WhatsApp").is_visible()
+            if not_on_whatsapp:
+                phone_status = "not_on_whatsapp"
+                break
+            
+            # Caso C: Tiene WhatsApp - buscar el texto o el switch
+            has_whatsapp_text = await page.get_by_text("Sincronizar contacto con el teléfono").is_visible()
+            if has_whatsapp_text:
+                phone_status = "whatsapp"
+                break
+            
+            # También buscar el switch directamente
+            switch_count = await page.locator('[role="switch"]').count()
+            if switch_count > 0:
+                phone_status = "whatsapp"
+                break
+            
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+        
+        logger.debug(f"[ADD 5/7] Estado detectado: {phone_status} (en {elapsed:.1f}s)", account=account)
+        
+        # === Manejar casos que NO se guardan ===
+        
+        if phone_status == "duplicate":
+            logger.warn(f"⚠️ {phone} ya existe en contactos. Cancelando.", account=account)
             await page.keyboard.press("Escape")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
             await page.keyboard.press("Escape")
             return
-
-        # PASO 5: Switch Sincronizar
-        # logger.debug("[ADD 5/6] Verificando switch de sincronización...", account=account)
-        sync_switch = page.locator('[role="checkbox"], [role="switch"], .x10l6tqk.x13vifvy').last
-        try:
-            await sync_switch.wait_for(state="attached", timeout=3000)
-            await sync_switch.click()
-            await asyncio.sleep(1)
-        except:
-            logger.warn("⚠️ Switch no encontrado, saltando...", account=account)
-
-        # PASO 6: Guardar Contacto
-        # logger.debug("[ADD 6/6] Guardando contacto y validando...", account=account)
-        # En WhatsApp Business, a veces el botón es un icono o dice "Guardar"
-        save_selectors = [
-            'div[role="button"]:has-text("Guardar")',
-            'div[role="button"][aria-label*="Guardar"]',
-            'div[role="button"] [data-icon="checkmark"]',
-            'div[role="button"] [data-icon="check"]',
-            'span:has-text("Guardar")',
-            'button:has-text("Guardar")'
-        ]
         
-        save_btn = None
-        for sel in save_selectors:
-            btn = page.locator(sel).first
-            if await btn.count() > 0:
-                save_btn = btn
-                break
+        if phone_status == "not_on_whatsapp":
+            logger.warn(f"⚠️ {phone} NO está en WhatsApp. No se guardará.", account=account)
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.3)
+            await page.keyboard.press("Escape")
+            return
         
-        if not save_btn:
-             # Último recurso: El botón que esté más a la derecha en la cabecera del modal
-             save_btn = page.locator('div[role="dialog"] div[role="button"]').last
+        if phone_status == "whatsapp":
+            # Activar switch de sincronización
+            logger.debug("[ADD 6/7] Activando switch de sincronización...", account=account)
+            try:
+                # Intentar con role="switch"
+                sync_switch = page.locator('[role="switch"]').first
+                sw_count = await sync_switch.count()
+                logger.debug(f"[ADD 6/7] Switches encontrados: {sw_count}", account=account)
+                
+                if sw_count > 0:
+                    await sync_switch.wait_for(state="visible", timeout=3000)
+                    is_checked = await sync_switch.get_attribute("aria-checked")
+                    logger.debug(f"[ADD 6/7] Switch aria-checked: {is_checked}", account=account)
+                    
+                    if is_checked != "true":
+                        await sync_switch.click()
+                        logger.debug("[ADD 6/7] ✅ Switch clickeado", account=account)
+                        await asyncio.sleep(0.5)
+                    else:
+                        logger.debug("[ADD 6/7] Switch ya estaba activado", account=account)
+                else:
+                    # Fallback: buscar por JavaScript cualquier elemento que parezca toggle
+                    logger.debug("[ADD 6/7] Intentando fallback JS para switch...", account=account)
+                    await page.evaluate('''() => {
+                        const switches = document.querySelectorAll('[role="switch"], [role="checkbox"]');
+                        if (switches.length > 0) switches[switches.length - 1].click();
+                    }''')
+                    await asyncio.sleep(0.5)
+            except Exception as sync_err:
+                logger.warn(f"⚠️ No se pudo activar sync: {sync_err}", account=account)
+        else:
+            logger.info(f"🆕 Número {phone} nuevo (sin WhatsApp detectado). Guardando.", account=account)
 
-        await save_btn.wait_for(state="visible", timeout=5000)
+        # PASO 7: Guardar Contacto
+        # El botón tiene: data-testid="save-contact-btn" aria-label="Guardar contacto"
+        # Tarda unos segundos en aparecer después de activar sync
+        logger.debug("[ADD 7/7] Esperando botón guardar...", account=account)
         
         if data.get("dry_run"):
-            logger.warn("🧪 MODO DRY-RUN: Simulado, omitiendo clic en 'Guardar'.", account=account)
+            logger.warn("🧪 MODO DRY-RUN: Simulado, omitiendo guardar.", account=account)
         else:
-            await save_btn.click()
-            await asyncio.sleep(2)
+            save_btn = page.locator('[data-testid="save-contact-btn"]')
+            saved = False
+            
+            # INTENTO 1: Esperar hasta 6 segundos a que aparezca el botón
+            try:
+                await save_btn.wait_for(state="visible", timeout=6000)
+                await save_btn.click()
+                logger.debug("[ADD 7/7] ✅ Intento 1: clic en save-contact-btn", account=account)
+                await asyncio.sleep(2)
+                
+                still_in_form = await page.get_by_text("Nuevo contacto", exact=True).is_visible()
+                if not still_in_form:
+                    saved = True
+            except Exception as e1:
+                logger.warn(f"[ADD 7/7] Intento 1 falló: {e1}", account=account)
+            
+            # INTENTO 2: Esperar 3s más e intentar de nuevo
+            if not saved:
+                logger.debug("[ADD 7/7] Aún en formulario. Esperando 3s para intento 2...", account=account)
+                await asyncio.sleep(3)
+                try:
+                    await save_btn.click(force=True)
+                    logger.debug("[ADD 7/7] ✅ Intento 2: clic forzado", account=account)
+                    await asyncio.sleep(2)
+                    
+                    still_in_form = await page.get_by_text("Nuevo contacto", exact=True).is_visible()
+                    if not still_in_form:
+                        saved = True
+                except Exception as e2:
+                    logger.warn(f"[ADD 7/7] Intento 2 falló: {e2}", account=account)
+            
+            if not saved:
+                logger.warn(f"⚠️ No se pudo guardar {name} ({phone}). Escapando.", account=account)
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.5)
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.3)
+                elapsed_total = time.time() - start_time
+                logger.warn(f"⏱️ Abandonado en {elapsed_total:.2f}s", account=account)
+                return
 
-        logger.success(f"✅ Contacto procesado: {name} ({phone})", account=account)
+        elapsed_total = time.time() - start_time
+        logger.success(f"✅ Contacto guardado: {name} ({phone}) en {elapsed_total:.2f}s", account=account)
 
-        # PASO 7: Cerrar
+        # Cerrar panel si quedó abierto
         try:
             await page.keyboard.press("Escape")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
         except: pass
 
     except Exception as e:
         logger.error(f"❌ Error al añadir contacto {name}: {str(e)}", account=account)
-        # Tomar captura de pantalla para diagnóstico
         try:
             os.makedirs("data/errors", exist_ok=True)
             path = f"data/errors/add_contact_{account}_{int(time.time())}.png"
             await page.screenshot(path=path)
-            logger.info(f"[{account}] 📸 Captura de error guardada en: {path}")
-            # Loggear el HTML del modal para ver los nombres de los campos
-            modal_html = await page.locator('div[role="dialog"]').inner_html()
-            logger.info(f"[{account}] 📄 Estructura del modal capturada para análisis.")
+            logger.info(f"📸 Captura de error: {path}", account=account)
         except: pass
         
         try:
             await page.keyboard.press("Escape")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
         except: pass
         raise e
 
