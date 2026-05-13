@@ -67,11 +67,12 @@ async def add_contact_task(account: str, data: dict):
         logger.debug("[ADD 5/7] Esperando respuesta de WhatsApp...", account=account)
         
         phone_status = "new"
-        max_wait = 5.0
-        poll_interval = 0.4
+        max_wait = 10.0
+        poll_interval = 0.5
         elapsed = 0.0
         
-        await asyncio.sleep(0.8)
+        logger.debug("[ADD 5/7] Validando número en WhatsApp...", account=account)
+        await asyncio.sleep(2.5)
         
         while elapsed < max_wait:
             # Caso A: Ya existe en contactos
@@ -80,11 +81,14 @@ async def add_contact_task(account: str, data: dict):
                 phone_status = "duplicate"
                 break
             
-            # Caso B: No está en WhatsApp
-            not_on_whatsapp = await page.get_by_text("no está en WhatsApp").is_visible()
-            if not_on_whatsapp:
-                phone_status = "not_on_whatsapp"
-                break
+            # Caso B: No está en WhatsApp (doble verificación)
+            if await page.get_by_text("no está en WhatsApp").is_visible():
+                await asyncio.sleep(1.5)
+                if await page.get_by_text("no está en WhatsApp").is_visible():
+                    phone_status = "not_on_whatsapp"
+                    break
+                else:
+                    logger.debug("[ADD 5/7] Falso negativo de 'no está en WhatsApp' detectado. Continuando...", account=account)
             
             # Caso C: Tiene WhatsApp - buscar el texto o el switch
             has_whatsapp_text = await page.get_by_text("Sincronizar contacto con el teléfono").is_visible()
@@ -134,19 +138,22 @@ async def add_contact_task(account: str, data: dict):
                     logger.debug(f"[ADD 6/7] Switch aria-checked: {is_checked}", account=account)
                     
                     if is_checked != "true":
+                        logger.debug("[ADD 6/7] Switch visible. Esperando 3s antes de activar sync...", account=account)
+                        await asyncio.sleep(3)
                         await sync_switch.click()
                         logger.debug("[ADD 6/7] ✅ Switch clickeado", account=account)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(2)
                     else:
                         logger.debug("[ADD 6/7] Switch ya estaba activado", account=account)
                 else:
                     # Fallback: buscar por JavaScript cualquier elemento que parezca toggle
-                    logger.debug("[ADD 6/7] Intentando fallback JS para switch...", account=account)
+                    logger.debug("[ADD 6/7] Esperando 3s antes de activar sync (fallback)...", account=account)
+                    await asyncio.sleep(3)
                     await page.evaluate('''() => {
                         const switches = document.querySelectorAll('[role="switch"], [role="checkbox"]');
                         if (switches.length > 0) switches[switches.length - 1].click();
                     }''')
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(2)
             except Exception as sync_err:
                 logger.warn(f"⚠️ No se pudo activar sync: {sync_err}", account=account)
         else:
