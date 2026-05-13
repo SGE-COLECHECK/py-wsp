@@ -75,32 +75,28 @@ async def add_contact_task(account: str, data: dict):
         await asyncio.sleep(2.5)
         
         while elapsed < max_wait:
-            # Caso A: Ya existe en contactos
-            already_in_contacts = await page.get_by_text("ya está en tus contactos").is_visible()
-            if already_in_contacts:
+            # PRIORIDAD 1: ¿SÍ está en WhatsApp? (Si vemos el switch o el mensaje positivo)
+            has_whatsapp_msg = await page.get_by_text("está en WhatsApp", exact=False).is_visible()
+            has_sync_text = await page.get_by_text("Sincronizar contacto con el teléfono").is_visible()
+            switch_exists = await page.locator('div.x1c4vz4f.xs83m0k.xdl72j9.x1g77sc7.xeuugli.x2lwn1j.xozqiw3.x1oa3qoh.x12fk4p8.xymharo, [role="switch"]').count() > 0
+            
+            if has_whatsapp_msg or has_sync_text or switch_exists:
+                # Si el mensaje dice "está en WhatsApp" pero NO dice "no está", entonces es positivo
+                if not await page.get_by_text("no está en WhatsApp", exact=True).is_visible():
+                    phone_status = "whatsapp"
+                    break
+
+            # PRIORIDAD 2: ¿Ya existe?
+            if await page.get_by_text("ya está en tus contactos").is_visible():
                 phone_status = "duplicate"
                 break
             
-            # Caso B: No está en WhatsApp (doble verificación)
-            if await page.get_by_text("no está en WhatsApp").is_visible():
+            # PRIORIDAD 3: ¿Realmente NO está? (Usamos exact=True para evitar confusiones)
+            if await page.get_by_text("no está en WhatsApp", exact=True).is_visible():
                 await asyncio.sleep(1.5)
-                if await page.get_by_text("no está en WhatsApp").is_visible():
+                if await page.get_by_text("no está en WhatsApp", exact=True).is_visible():
                     phone_status = "not_on_whatsapp"
                     break
-                else:
-                    logger.debug("[ADD 5/7] Falso negativo de 'no está en WhatsApp' detectado. Continuando...", account=account)
-            
-            # Caso C: Tiene WhatsApp - buscar el texto o el switch
-            has_whatsapp_text = await page.get_by_text("Sincronizar contacto con el teléfono").is_visible()
-            if has_whatsapp_text:
-                phone_status = "whatsapp"
-                break
-            
-            # También buscar el switch directamente
-            switch_count = await page.locator('[role="switch"]').count()
-            if switch_count > 0:
-                phone_status = "whatsapp"
-                break
             
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
@@ -135,16 +131,20 @@ async def add_contact_task(account: str, data: dict):
                 if sw_count > 0:
                     await sync_switch.wait_for(state="visible", timeout=5000)
                     is_checked = await sync_switch.get_attribute("aria-checked")
-                    logger.debug(f"[ADD 6/7] Switch aria-checked: {is_checked}", account=account)
+                    logger.info(f"[ADD 6/7] Estado del switch: {is_checked}", account=account)
                     
                     if is_checked != "true":
-                        logger.debug("[ADD 6/7] Switch visible. Esperando 3s antes de activar sync...", account=account)
-                        await asyncio.sleep(3)
+                        logger.info(f"[ADD 6/7] 🕒 ESPERANDO 3 SEGUNDOS antes de activar sincronización...", account=account)
+                        await asyncio.sleep(1); logger.info("🕒 3...", account=account)
+                        await asyncio.sleep(1); logger.info("🕒 2...", account=account)
+                        await asyncio.sleep(1); logger.info("🕒 1...", account=account)
+                        
+                        logger.info("[ADD 6/7] 🖱️ Haciendo CLIC en el switch de sincronización...", account=account)
                         await sync_switch.click()
-                        logger.debug("[ADD 6/7] ✅ Switch clickeado", account=account)
+                        logger.success("[ADD 6/7] ✅ Switch activado con éxito", account=account)
                         await asyncio.sleep(2)
                     else:
-                        logger.debug("[ADD 6/7] Switch ya estaba activado", account=account)
+                        logger.info("[ADD 6/7] ✨ El switch ya estaba activado, saltando clic.", account=account)
                 else:
                     # Fallback: buscar por JavaScript cualquier elemento que parezca toggle
                     logger.debug("[ADD 6/7] Esperando 3s antes de activar sync (fallback)...", account=account)
@@ -167,17 +167,28 @@ async def add_contact_task(account: str, data: dict):
         if data.get("dry_run"):
             logger.warn("🧪 MODO DRY-RUN: Simulado, omitiendo guardar.", account=account)
         else:
-            # Selector principal y fallback para el botón de guardar
-            save_btn = page.locator('[data-testid="save-contact-btn"], [aria-label="Guardar contacto"], div[role="button"]:has-text("Guardar")')
+            # Selectores: data-testid, aria-label, el botón circular negro con check (span > div > span), o por icono
+            save_btn = page.locator('[data-testid="save-contact-btn"], [aria-label="Guardar contacto"], [aria-label="Guardar"], div[role="button"] span[data-icon="check"], div[role="button"] span[data-icon="checkmark"]')
+            
+            # Fallback para el botón circular negro de la imagen
+            if await save_btn.count() == 0:
+                save_btn = page.locator('div[role="button"]:has(span[data-icon="check"]), div[role="button"]:has(span[data-icon="checkmark"]), #side ~ div div[role="button"] span').last
+            
             saved = False
             
             # INTENTO 1: Esperar hasta 10 segundos a que aparezca el botón
             try:
+                logger.info("[ADD 7/7] 🔎 Buscando botón 'Guardar'...", account=account)
                 await save_btn.wait_for(state="visible", timeout=10000)
-                logger.debug("[ADD 7/7] Botón visible. Esperando 3s para asegurar guardado...", account=account)
-                await asyncio.sleep(3)
+                
+                logger.info("[ADD 7/7] 🕒 BOTÓN ENCONTRADO. Esperando 3 segundos de seguridad...", account=account)
+                await asyncio.sleep(1); logger.info("🕒 3...", account=account)
+                await asyncio.sleep(1); logger.info("🕒 2...", account=account)
+                await asyncio.sleep(1); logger.info("🕒 1...", account=account)
+                
+                logger.info("[ADD 7/7] 💾 Presionando botón GUARDAR...", account=account)
                 await save_btn.click()
-                logger.debug("[ADD 7/7] ✅ Intento 1: clic en save-contact-btn", account=account)
+                logger.success("[ADD 7/7] ✅ Botón guardar presionado", account=account)
                 await asyncio.sleep(3)
                 
                 still_in_form = await page.get_by_text("Nuevo contacto", exact=True).is_visible()
