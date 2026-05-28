@@ -102,12 +102,11 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
     import datetime
     today = datetime.datetime.now().strftime("%d/%m/%Y")
 
-    header = "🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅"  # 🚨🇨🇴🇱🇪✅
-    header += f"*[ {today} ]* \U0001F44B \u00a1Bienvenido/a!\n\n"
-
     if override_enabled and custom_msg.strip():
-        message = header + custom_msg
+        message = custom_msg
     else:
+        header = "🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅"  # 🚨🇨🇴🇱🇪✅
+        header += f"*[ {today} ]* \U0001F44B \u00a1Bienvenido/a!\n\n"
         cuerpo = (
             "Le damos la bienvenida al sistema de seguimiento academico \U0001F4DA\n\n"
             "\U0001F514 *Importante:*\n"
