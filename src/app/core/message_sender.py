@@ -308,11 +308,13 @@ async def send_report_task(account: str, data: dict):
             # --- PASO 2 ---
             search_start = time.time()
             await search_box.type(formatted_phone, delay=25) 
+            search_delay = config_manager.get_global("search_delay", 2.0)
+            await asyncio.sleep(search_delay)
             await page.keyboard.press("Enter")
 
             # --- PASO 3 ---
             # Espera humana para que cargue el chat
-            await asyncio.sleep(0.5) 
+            await asyncio.sleep(1.0) 
             t_search = time.time() - search_start
             
             no_whatsapp_found = await page.evaluate('''() => {

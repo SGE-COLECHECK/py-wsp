@@ -172,3 +172,41 @@ Each client/account can have its own override settings (in `config.json` under `
 3. Set delay/batch overrides (0 = use global settings from GLOBAL CONFIG tab)
 4. Click **SAVE & CLOSE**
 5. The welcome message and queue delays will now use per-client values
+
+### Test Send (Client Config)
+When override is enabled, a **TEST SEND** section appears:
+- Input phone number (with 51 prefix)
+- Click **SEND TEST** → enqueues the override message immediately to that number
+
+### `--linux` / `--develop` Flag
+`run.py` detects `--linux` or `--develop` in argv to activate Ubuntu 26.04 Playwright compatibility (`.browsers/` path + platform override). Without flag, runs clean (no env vars) — compatible with Windows production.
+
+## Session Changes (2026-05-27)
+
+### Welcome Message Structure
+- **Header fijo** (siempre se antepone): `🚨🇨🇴🇱🇪✅ *[fecha]* 👋 ¡Bienvenido/a!`
+- **Override = solo el cuerpo**: El text area del override es únicamente el cuerpo del mensaje. El header con marca y fecha se agrega automáticamente.
+- **Sin override**: Se usa un cuerpo por defecto (texto de bienvenida genérico).
+- **Sin f-strings**: Se usa `.format()` para evitar errores de encoding con Unicode en Windows.
+- **Sin zero-width spaces**: Se eliminaron los caracteres U+200B que rompían el parser de Python en Windows.
+
+### Search Delay
+- Nuevo setting global `search_delay` (default 2.0s) en GLOBAL CONFIG.
+- Pausa después de escribir el número en el buscador y antes de presionar Enter.
+- Da tiempo a WhatsApp para encontrar el contacto.
+- Post-Enter wait aumentado de 0.5s a 1.0s.
+
+### Windows 500 Error Fixed
+- El error `500 Internal Server Error` en `sendWelcomeMessage` era por emojis con zero-width joiners dentro de f-strings en Windows.
+- Solución: usar unicode escapes (`\U0001F6A8`) en strings regulares con `.format()`.
+
+### Other Changes
+- **overridewelcome branch**: Per-client welcome override + delay/batch overrides
+- **Welcome override simplified**: No more `{usuario}`, `{contrasena}`, `{url}`, `{fecha}` — just raw text, sent as-is. Header (brand + date) is auto-prepended.
+- **tkinter**: Compiled `_tkinter` from Python 3.14.4 source + extracted Tcl/Tk debs into `.tk-lib/` for this Linux dev machine (no sudo needed)
+- **Playwright**: Browsers installed at default location via `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 playwright install chromium`
+- **run.py**: Clean by default; `--linux`/`--develop` flag activates Ubuntu 26.04 patches (`.browsers/` + platform override)
+- **Config Manager**: New `get_client_override()` and `get_client_delay()` per-client with global fallback
+- **Queue Manager**: Uses `get_client_delay()` for per-client batch/delay settings
+- **GUI**: Client Config modal now has: Welcome Override (cuerpo), Test Send, Delay Overrides, Batch Overrides
+- **start.sh**: Helper script that activates venv and runs with `--linux`

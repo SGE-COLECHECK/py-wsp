@@ -99,17 +99,26 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
     override_enabled = client_cfg.get("override_welcome", False)
     custom_msg = client_cfg.get("custom_welcome_msg", "")
 
+    import datetime
+    today = datetime.datetime.now().strftime("%d/%m/%Y")
+
+    header = "🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅"  # 🚨🇨🇴🇱🇪✅
+    header += f"*[ {today} ]* \U0001F44B \u00a1Bienvenido/a!\n\n"
+
     if override_enabled and custom_msg.strip():
-        message = custom_msg
+        message = header + custom_msg
     else:
-        message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ *[ {today} ]*👋 ¡Bienvenido/a!\n"
-        message += f"Le damos la bienvenida al sistema de seguimiento académico 📚\n\n"
-        message += f"🔔 *Importante:*\n"
-        message += f"A través de este medio recibirá notificaciones sobre asistencia y actividades académicas.\n\n"
-        message += f"🎫 *Verifique que su hijo(a) lleve siempre su credencial, ya que las notificaciones dependen de su uso al ingresar y salir del colegio.*\n\n"
-        message += f"📌 Manténgase atento/a a las notificaciones enviadas.\n\n"
-        message += f"👍 Puede reaccionar o responder a los mensajes para mantener activo el servicio.\n\n"
-        message += f"🎓 Equipo ColeCheck"
+        cuerpo = (
+            "Le damos la bienvenida al sistema de seguimiento academico \U0001F4DA\n\n"
+            "\U0001F514 *Importante:*\n"
+            "A traves de este medio recibira notificaciones sobre asistencia y actividades academicas.\n\n"
+            "\U0001F3AB *Verifique que su hijo(a) lleve siempre su credencial, "
+            "ya que las notificaciones dependen de su uso al ingresar y salir del colegio.*\n\n"
+            "\U0001F4CC Mantengase atento/a a las notificaciones enviadas.\n\n"
+            "\U0001F44D Puede reaccionar o responder a los mensajes para mantener activo el servicio.\n\n"
+            "\U0001F393 *Equipo ColeCheck*"
+        )
+        message = header + cuerpo
 
     payload = {
         "type": "message", 

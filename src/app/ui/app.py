@@ -432,6 +432,13 @@ class WhatsAppUI:
             if c_psmin or c_psmax:
                 config_manager.settings["global"]["pre_send_min"] = ps_min
                 config_manager.settings["global"]["pre_send_max"] = ps_max
+
+            imgui.spacing()
+            imgui.text_disabled("Delay tras escribir numero en buscador (para que WhatsApp encuentre el chat):")
+            s_delay = config_manager.get_global("search_delay", 2.0)
+            c_sd, s_delay = imgui.slider_float("Search Delay (s)", s_delay, 0.5, 5.0, "%.1f")
+            if c_sd:
+                config_manager.settings["global"]["search_delay"] = s_delay
             
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_SYNC}  2. QUEUE ORCHESTRATOR")
@@ -594,7 +601,8 @@ class WhatsAppUI:
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), "WELCOME MESSAGE OVERRIDE")
             c_ow, self.override_welcome_val = imgui.checkbox("Override Welcome Message", self.override_welcome_val)
             if self.override_welcome_val:
-                imgui.text_disabled("Escribe el mensaje exacto que se enviará (soporta saltos de línea)")
+                imgui.text_disabled("Se antepone automáticamente: 🚨🇨🇴🇱🇪✅ *[fecha]* 👋 ¡Bienvenido/a!")
+                imgui.text_disabled("Escribe solo el cuerpo del mensaje (respeta saltos de línea):")
                 c_cw, self.custom_welcome_msg_val = imgui.input_text_multiline("##custommsg", self.custom_welcome_msg_val, (btn_width - 20, 120))
                 imgui.spacing()
                 imgui.text_colored((0.3, 0.7, 1.0, 1.0), "TEST SEND")
@@ -603,8 +611,12 @@ class WhatsAppUI:
                 if imgui.button("SEND TEST", (100, 0)):
                     phone = "".join(filter(str.isdigit, self.test_phone_val))
                     if phone and self.custom_welcome_msg_val.strip():
-                        import json
-                        payload = {"type": "message", "phone": phone, "message": self.custom_welcome_msg_val, "label": "TEST", "dry_run": False}
+                        import datetime
+                        today = datetime.datetime.now().strftime("%d/%m/%Y")
+                        header = "\U0001f6a8\U0001f1e8\U0001f1f4\U0001f1f1\U0001f1ea\u2705 "
+                        header += f"*[ {today} ]* \U0001f44B \u00a1Bienvenido/a!\n\n"
+                        full_msg = header + self.custom_welcome_msg_val
+                        payload = {"type": "message", "phone": phone, "message": full_msg, "label": "TEST", "dry_run": False}
                         asyncio.run_coroutine_threadsafe(queue_manager.enqueue(name, payload), self.loop)
                         logger.success(f"📨 Test message enqueued to {phone}", account=name)
                     else:
