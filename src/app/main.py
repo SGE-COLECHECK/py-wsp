@@ -95,15 +95,12 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
     if not telefono or not usuario or not contrasena or not url:
         return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre, usuario, contrasena, url)"}
 
-    override_enabled = config_manager.get_global("override_welcome", False)
-    custom_msg = config_manager.get_global("custom_welcome_msg", "")
-
-    import datetime
-    today = datetime.datetime.now().strftime("%d/%m/%Y")
+    client_cfg = config_manager.get_client_config(account)
+    override_enabled = client_cfg.get("override_welcome", False)
+    custom_msg = client_cfg.get("custom_welcome_msg", "")
 
     if override_enabled and custom_msg.strip():
-        # Permitir variables opcionales en el mensaje estático
-        message = custom_msg.replace("{usuario}", usuario).replace("{contrasena}", contrasena).replace("{url}", url).replace("{fecha}", today)
+        message = custom_msg
     else:
         message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ *[ {today} ]*👋 ¡Bienvenido/a!\n"
         message += f"Le damos la bienvenida al sistema de seguimiento académico 📚\n\n"

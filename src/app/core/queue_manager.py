@@ -108,15 +108,15 @@ class QueueManager:
                     await process_queue_item(account, json.loads(data_json))
                     
                     self.batch_counters[account] += 1
-                    batch_size = config_manager.get_global("batch_size", 20)
+                    batch_size = config_manager.get_client_delay(account, "batch_size", 20)
                     if self.batch_counters[account] >= batch_size:
-                        pause_time = config_manager.get_global("batch_pause", 60)
+                        pause_time = config_manager.get_client_delay(account, "batch_pause", 60)
                         logger.warn(f"[{account}] Pausa de lote: {pause_time}s")
                         self.batch_counters[account] = 0
                         await asyncio.sleep(pause_time)
                     else:
-                        min_d = config_manager.get_global("min_delay", 2)
-                        max_d = config_manager.get_global("max_delay", 5)
+                        min_d = config_manager.get_client_delay(account, "min_delay", 2)
+                        max_d = config_manager.get_client_delay(account, "max_delay", 5)
                         await asyncio.sleep(random.randint(min_d, max_d))
                 else:
                     await asyncio.sleep(1)

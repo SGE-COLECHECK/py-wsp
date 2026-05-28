@@ -2,9 +2,15 @@ import os
 import asyncio
 import psutil
 import threading
-import tkinter as tk
-from tkinter import filedialog
 import openpyxl
+
+# tkinter solo se necesita para el diálogo de archivos YCLOUD (opcional)
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+    _tkinter_available = True
+except ImportError:
+    _tkinter_available = False
 import requests
 from imgui_bundle import imgui, immapp, hello_imgui, icons_fontawesome
 from app.core.browser_manager import browser_manager
@@ -62,6 +68,9 @@ class WhatsAppUI:
             await asyncio.sleep(1)
 
     def load_excel(self):
+        if not _tkinter_available:
+            logger.error("❌ tkinter no está instalado. Instala 'python3-tk' para usar la carga de Excel.")
+            return
         def _load():
             root = tk.Tk()
             root.withdraw()
@@ -456,21 +465,8 @@ class WhatsAppUI:
             
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), "3. WELCOME MESSAGE OVERRIDE")
-            
-            override_val = config_manager.get_global("override_welcome", False)
-            custom_msg = config_manager.get_global("custom_welcome_msg", "Escribe tu mensaje aquí...")
-            
-            c5, override_val = imgui.checkbox("Sobrescribir Mensaje de Bienvenida", override_val)
-            
-            if override_val:
-                imgui.text_disabled("Usa las variables: {usuario}, {contrasena}, {url}")
-                c6, custom_msg = imgui.input_text_multiline("##custommsg", custom_msg, (imgui.get_window_width() - 30, 80))
-            else:
-                c6 = False
-
-            if c5 or c6:
-                config_manager.settings["global"]["override_welcome"] = override_val
-                config_manager.settings["global"]["custom_welcome_msg"] = custom_msg
+            imgui.text_disabled("Per-client: click ⚙ (gear) on any client in the sidebar → Client Config")
+            imgui.text_disabled("Escribe el texto exacto que quieres enviar. Sin variables, sin reemplazos.")
 
         elif self.active_tab == "YCLOUD":
             if imgui.button(f"{icons_fontawesome.ICON_FA_COG}  YCLOUD CONFIGURATION"):
@@ -577,14 +573,74 @@ class WhatsAppUI:
         if self.show_config_client:
             imgui.open_popup("Client Config")
             self.current_cfg_name = self.show_config_client
-            self.headless_val = config_manager.get_client_config(self.current_cfg_name).get("headless", True)
+            cfg = config_manager.get_client_config(self.current_cfg_name)
+            self.headless_val = cfg.get("headless", True)
+            self.override_welcome_val = cfg.get("override_welcome", False)
+            self.custom_welcome_msg_val = cfg.get("custom_welcome_msg", "")
+            self.override_min_delay_val = cfg.get("override_min_delay", None)
+            self.override_max_delay_val = cfg.get("override_max_delay", None)
+            self.override_batch_size_val = cfg.get("override_batch_size", None)
+            self.override_batch_pause_val = cfg.get("override_batch_pause", None)
+            self.test_phone_val = ""
             self.show_config_client = None
         if imgui.begin_popup_modal("Client Config", True, imgui.WindowFlags_.always_auto_resize)[0]:
             name = getattr(self, 'current_cfg_name', 'Unknown')
-            imgui.text(f"Settings: {name}")
-            _, self.headless_val = imgui.checkbox("Headless Mode", self.headless_val)
-            if imgui.button("Save & Close"):
-                config_manager.set_client_config(name, {"headless": self.headless_val})
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"Settings: {name}")
+            imgui.spacing()
+            imgui.text("Headless Mode")
+            _, self.headless_val = imgui.checkbox("##headless", self.headless_val)
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            btn_width = imgui.get_content_region_avail().x
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "WELCOME MESSAGE OVERRIDE")
+            c_ow, self.override_welcome_val = imgui.checkbox("Override Welcome Message", self.override_welcome_val)
+            if self.override_welcome_val:
+                imgui.text_disabled("Escribe el mensaje exacto que se enviará (soporta saltos de línea)")
+                c_cw, self.custom_welcome_msg_val = imgui.input_text_multiline("##custommsg", self.custom_welcome_msg_val, (btn_width - 20, 120))
+                imgui.spacing()
+                imgui.text_colored((0.3, 0.7, 1.0, 1.0), "TEST SEND")
+                _, self.test_phone_val = imgui.input_text("Phone (with 51##testphone", self.test_phone_val)
+                imgui.same_line()
+                if imgui.button("SEND TEST", (100, 0)):
+                    phone = "".join(filter(str.isdigit, self.test_phone_val))
+                    if phone and self.custom_welcome_msg_val.strip():
+                        import json
+                        payload = {"type": "message", "phone": phone, "message": self.custom_welcome_msg_val, "label": "TEST", "dry_run": False}
+                        asyncio.run_coroutine_threadsafe(queue_manager.enqueue(name, payload), self.loop)
+                        logger.success(f"📨 Test message enqueued to {phone}", account=name)
+                    else:
+                        logger.error("⚠️ Enter a phone number and write a message first.")
+                imgui.same_line()
+                imgui.text_disabled("+51")
+            else:
+                c_cw = False
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "DELAY OVERRIDES (0 = use global)")
+            _mind = self.override_min_delay_val if self.override_min_delay_val is not None else 0
+            _maxd = self.override_max_delay_val if self.override_max_delay_val is not None else 0
+            c_mind, _mind = imgui.slider_int("Min Delay (s)", _mind, 0, 30, "%d")
+            c_maxd, _maxd = imgui.slider_int("Max Delay (s)", _maxd, 0, 60, "%d")
+            if c_mind: self.override_min_delay_val = _mind if _mind > 0 else None
+            if c_maxd: self.override_max_delay_val = _maxd if _maxd > 0 else None
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "BATCH OVERRIDES (0 = use global)")
+            _bs = self.override_batch_size_val if self.override_batch_size_val is not None else 0
+            _bp = self.override_batch_pause_val if self.override_batch_pause_val is not None else 0
+            c_bs, _bs = imgui.slider_int("Batch Size", _bs, 0, 500, "%d")
+            c_bp, _bp = imgui.slider_int("Batch Pause (s)", _bp, 0, 600, "%d")
+            if c_bs: self.override_batch_size_val = _bs if _bs > 0 else None
+            if c_bp: self.override_batch_pause_val = _bp if _bp > 0 else None
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.set_cursor_pos_x((btn_width - 150) / 2)
+            if imgui.button("SAVE & CLOSE", (150, 30)):
+                config_manager.set_client_config(name, {
+                    "headless": self.headless_val,
+                    "override_welcome": self.override_welcome_val,
+                    "custom_welcome_msg": self.custom_welcome_msg_val,
+                    "override_min_delay": self.override_min_delay_val,
+                    "override_max_delay": self.override_max_delay_val,
+                    "override_batch_size": self.override_batch_size_val,
+                    "override_batch_pause": self.override_batch_pause_val
+                })
                 imgui.close_current_popup()
             imgui.end_popup()
 

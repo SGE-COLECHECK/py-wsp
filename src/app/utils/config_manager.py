@@ -74,4 +74,17 @@ class ConfigManager:
     def get_global(self, key, default=None):
         return self.settings["global"].get(key, default)
 
+    def get_client_override(self, name, key, default=None):
+        cfg = self.get_client_config(name)
+        if key in cfg and cfg[key] is not None:
+            return cfg[key]
+        return default
+
+    def get_client_delay(self, name, delay_key, fallback_default):
+        client_cfg = self.get_client_config(name)
+        override_key = f"override_{delay_key}"
+        if override_key in client_cfg and client_cfg[override_key] is not None:
+            return client_cfg[override_key]
+        return self.get_global(delay_key, fallback_default)
+
 config_manager = ConfigManager()

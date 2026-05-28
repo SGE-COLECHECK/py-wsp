@@ -11,6 +11,16 @@ __pycache__/
 .venv/
 venv/
 ENV/
+myenv/
+
+# Playwright browsers
+.browsers/
+
+# Start script
+start.sh
+
+# Tkinter local libs
+.tk-lib/
 
 # Configuration
 config.json
