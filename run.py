@@ -4,16 +4,12 @@ import threading
 import asyncio
 import time
 
-# Playwright no soporta oficialmente Ubuntu 26.04; forzar compatibilidad con 24.04
-os.environ.setdefault("PLAYWRIGHT_HOST_PLATFORM_OVERRIDE", "ubuntu24.04-x64")
-browsers_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".browsers")
-os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", browsers_path)
-
-# Tkinter - librerías Tcl/Tk extraídas manualmente (sistema no tiene python3-tk)
-_tk_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".tk-lib")
-os.environ.setdefault("TCL_LIBRARY", os.path.join(_tk_lib, "share/tcltk/tcl8.6"))
-os.environ.setdefault("TK_LIBRARY", os.path.join(_tk_lib, "share/tcltk/tk8.6"))
-os.environ.setdefault("LD_LIBRARY_PATH", os.path.join(_tk_lib, "lib/x86_64-linux-gnu") + ":" + os.environ.get("LD_LIBRARY_PATH", ""))
+# Flags opcionales: --linux o --develop activan compatibilidad con Ubuntu 26.04
+if any(f in sys.argv for f in ("--linux", "--develop")):
+    _local_browsers = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".browsers")
+    if os.path.isdir(_local_browsers):
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", _local_browsers)
+        os.environ.setdefault("PLAYWRIGHT_HOST_PLATFORM_OVERRIDE", "ubuntu24.04-x64")
 
 # Priorizar la carpeta src actual
 base_path = os.path.dirname(os.path.abspath(__file__))
