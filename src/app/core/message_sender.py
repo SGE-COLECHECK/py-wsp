@@ -271,7 +271,7 @@ async def send_report_task(account: str, data: dict):
 
             # Limpiar cualquier popup o modal que haya quedado abierto
             await page.keyboard.press("Escape")
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.1)
 
             # --- PASO 1: Buscar el cuadro de búsqueda ---
             search_selectors = [
@@ -300,10 +300,10 @@ async def send_report_task(account: str, data: dict):
             
             # Clic + limpiar lo que haya escrito antes
             await search_box.click()
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
 
             # --- PASO 2 ---
             search_start = time.time()
@@ -314,7 +314,7 @@ async def send_report_task(account: str, data: dict):
 
             # --- PASO 3 ---
             # Espera humana para que cargue el chat
-            await asyncio.sleep(1.0) 
+            await asyncio.sleep(0.5)
             t_search = time.time() - search_start
             
             no_whatsapp_found = await page.evaluate('''() => {
@@ -360,7 +360,7 @@ async def send_report_task(account: str, data: dict):
                     raise Exception("No se encontró el cuadro de mensaje.")
 
             await msg_box.click()
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             
             # --- PASO 4.5 ---
             await page.keyboard.press("Control+A")
@@ -385,7 +385,7 @@ async def send_report_task(account: str, data: dict):
                     });
                     document.activeElement.dispatchEvent(pasteEvent);
                 }''', message)
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
             else:
                 # MODO TYPING: Teclear letra por letra
                 typing_delay = config_manager.get_global("typing_delay", 10)
@@ -414,7 +414,7 @@ async def send_report_task(account: str, data: dict):
             else:
                 await asyncio.sleep(pre_delay)
                 await page.keyboard.press("Enter")
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.1)
                 logger.read(f"Enviado a {formatted_phone} (delay: {pre_delay:.1f}s)", account=account)
                 logger.increment_sent(account)
             

@@ -102,7 +102,7 @@ class QueueManager:
                     await asyncio.sleep(2)
                     continue
 
-                result = await r.blpop(queue_name, timeout=5)
+                result = await r.blpop(queue_name, timeout=2)
                 if result:
                     _, data_json = result
                     await process_queue_item(account, json.loads(data_json))
