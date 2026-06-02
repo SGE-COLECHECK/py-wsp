@@ -12,7 +12,7 @@ async def add_contact_task(account: str, data: dict):
     name = data.get("name", "")
     start_time = time.time()
     
-    logger.info(f"👤 Añadiendo contacto: {name} ({phone})", account=account)
+    logger.info(f"Añadiendo contacto: {name} ({phone})", account=account)
     
     page = await browser_manager.get_page(account)
     if "web.whatsapp.com" not in page.url:
@@ -106,14 +106,14 @@ async def add_contact_task(account: str, data: dict):
         # === Manejar casos que NO se guardan ===
         
         if phone_status == "duplicate":
-            logger.warn(f"⚠️ {phone} ya existe en contactos. Cancelando.", account=account)
+            logger.warn(f"{phone} ya existe en contactos. Cancelando.", account=account)
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.3)
             await page.keyboard.press("Escape")
             return
         
         if phone_status == "not_on_whatsapp":
-            logger.warn(f"⚠️ {phone} NO está en WhatsApp. No se guardará.", account=account)
+            logger.warn(f"{phone} NO esta en WhatsApp. No se guardara.", account=account)
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.3)
             await page.keyboard.press("Escape")
@@ -134,17 +134,17 @@ async def add_contact_task(account: str, data: dict):
                     logger.info(f"[ADD 6/7] Estado del switch: {is_checked}", account=account)
                     
                     if is_checked != "true":
-                        logger.info(f"[ADD 6/7] 🕒 ESPERANDO 3 SEGUNDOS antes de activar sincronización...", account=account)
-                        await asyncio.sleep(1); logger.info("🕒 3...", account=account)
-                        await asyncio.sleep(1); logger.info("🕒 2...", account=account)
-                        await asyncio.sleep(1); logger.info("🕒 1...", account=account)
+                        logger.info(f"[ADD 6/7] ESPERANDO 3 SEGUNDOS antes de activar sincronizacion...", account=account)
+                        await asyncio.sleep(1); logger.info("3...", account=account)
+                        await asyncio.sleep(1); logger.info("2...", account=account)
+                        await asyncio.sleep(1); logger.info("1...", account=account)
                         
-                        logger.info("[ADD 6/7] 🖱️ Haciendo CLIC en el switch de sincronización...", account=account)
+                        logger.info("[ADD 6/7] Haciendo CLIC en el switch de sincronizacion...", account=account)
                         await sync_switch.click()
-                        logger.success("[ADD 6/7] ✅ Switch activado con éxito", account=account)
+                        logger.success("[ADD 6/7] Switch activado con exito", account=account)
                         await asyncio.sleep(2)
                     else:
-                        logger.info("[ADD 6/7] ✨ El switch ya estaba activado, saltando clic.", account=account)
+                        logger.info("[ADD 6/7] El switch ya estaba activado, saltando clic.", account=account)
                 else:
                     # Fallback: buscar por JavaScript cualquier elemento que parezca toggle
                     logger.debug("[ADD 6/7] Esperando 3s antes de activar sync (fallback)...", account=account)
@@ -155,9 +155,9 @@ async def add_contact_task(account: str, data: dict):
                     }''')
                     await asyncio.sleep(2)
             except Exception as sync_err:
-                logger.warn(f"⚠️ No se pudo activar sync: {sync_err}", account=account)
+                logger.warn(f"No se pudo activar sync: {sync_err}", account=account)
         else:
-            logger.info(f"🆕 Número {phone} nuevo (sin WhatsApp detectado). Guardando.", account=account)
+            logger.info(f"Numero {phone} nuevo (sin WhatsApp detectado). Guardando.", account=account)
 
         # PASO 7: Guardar Contacto
         # El botón tiene: data-testid="save-contact-btn" aria-label="Guardar contacto"
@@ -165,7 +165,7 @@ async def add_contact_task(account: str, data: dict):
         logger.debug("[ADD 7/7] Esperando botón guardar...", account=account)
         
         if data.get("dry_run"):
-            logger.warn("🧪 MODO DRY-RUN: Simulado, omitiendo guardar.", account=account)
+            logger.warn("MODO DRY-RUN: Simulado, omitiendo guardar.", account=account)
         else:
             # Selectores: data-testid, aria-label, el botón circular negro con check (span > div > span), o por icono
             save_btn = page.locator('[data-testid="save-contact-btn"], [aria-label="Guardar contacto"], [aria-label="Guardar"], div[role="button"] span[data-icon="check"], div[role="button"] span[data-icon="checkmark"]')
@@ -178,17 +178,17 @@ async def add_contact_task(account: str, data: dict):
             
             # INTENTO 1: Esperar hasta 10 segundos a que aparezca el botón
             try:
-                logger.info("[ADD 7/7] 🔎 Buscando botón 'Guardar'...", account=account)
+                logger.info("[ADD 7/7] Buscando boton 'Guardar'...", account=account)
                 await save_btn.wait_for(state="visible", timeout=10000)
                 
-                logger.info("[ADD 7/7] 🕒 BOTÓN ENCONTRADO. Esperando 3 segundos de seguridad...", account=account)
-                await asyncio.sleep(1); logger.info("🕒 3...", account=account)
-                await asyncio.sleep(1); logger.info("🕒 2...", account=account)
-                await asyncio.sleep(1); logger.info("🕒 1...", account=account)
+                logger.info("[ADD 7/7] BOTON ENCONTRADO. Esperando 3 segundos de seguridad...", account=account)
+                await asyncio.sleep(1); logger.info("3...", account=account)
+                await asyncio.sleep(1); logger.info("2...", account=account)
+                await asyncio.sleep(1); logger.info("1...", account=account)
                 
-                logger.info("[ADD 7/7] 💾 Presionando botón GUARDAR...", account=account)
+                logger.info("[ADD 7/7] Presionando boton GUARDAR...", account=account)
                 await save_btn.click()
-                logger.success("[ADD 7/7] ✅ Botón guardar presionado", account=account)
+                logger.success("[ADD 7/7] Boton guardar presionado", account=account)
                 await asyncio.sleep(3)
                 
                 still_in_form = await page.get_by_text("Nuevo contacto", exact=True).is_visible()
@@ -203,7 +203,7 @@ async def add_contact_task(account: str, data: dict):
                 await asyncio.sleep(3)
                 try:
                     await save_btn.click(force=True)
-                    logger.debug("[ADD 7/7] ✅ Intento 2: clic forzado", account=account)
+                    logger.debug("[ADD 7/7] Intento 2: clic forzado", account=account)
                     await asyncio.sleep(2)
                     
                     still_in_form = await page.get_by_text("Nuevo contacto", exact=True).is_visible()
@@ -213,17 +213,17 @@ async def add_contact_task(account: str, data: dict):
                     logger.warn(f"[ADD 7/7] Intento 2 falló: {e2}", account=account)
             
             if not saved:
-                logger.warn(f"⚠️ No se pudo guardar {name} ({phone}). Escapando.", account=account)
+                logger.warn(f"No se pudo guardar {name} ({phone}). Escapando.", account=account)
                 await page.keyboard.press("Escape")
                 await asyncio.sleep(0.5)
                 await page.keyboard.press("Escape")
                 await asyncio.sleep(0.3)
                 elapsed_total = time.time() - start_time
-                logger.warn(f"⏱️ Abandonado en {elapsed_total:.2f}s", account=account)
+                logger.warn(f"Abandonado en {elapsed_total:.2f}s", account=account)
                 return
 
         elapsed_total = time.time() - start_time
-        logger.success(f"✅ Contacto guardado: {name} ({phone}) en {elapsed_total:.2f}s", account=account)
+        logger.success(f"Contacto guardado: {name} ({phone}) en {elapsed_total:.2f}s", account=account)
 
         # Cerrar panel si quedó abierto
         try:
@@ -232,12 +232,12 @@ async def add_contact_task(account: str, data: dict):
         except: pass
 
     except Exception as e:
-        logger.error(f"❌ Error al añadir contacto {name}: {str(e)}", account=account)
+        logger.error(f"Error al anadir contacto {name}: {str(e)}", account=account)
         try:
             os.makedirs("data/errors", exist_ok=True)
             path = f"data/errors/add_contact_{account}_{int(time.time())}.png"
             await page.screenshot(path=path)
-            logger.info(f"📸 Captura de error: {path}", account=account)
+            logger.info(f"Captura de error: {path}", account=account)
         except: pass
         
         try:
@@ -295,7 +295,7 @@ async def send_report_task(account: str, data: dict):
                 os.makedirs("data/errors", exist_ok=True)
                 path = f"data/errors/search_fail_{account}_{int(time.time())}.png"
                 await page.screenshot(path=path)
-                logger.error(f"❌ No se encontró el buscador. Captura: {path}")
+                logger.error(f"No se encontró el buscador. Captura: {path}")
                 raise e
             
             # Clic + limpiar lo que haya escrito antes
@@ -327,7 +327,7 @@ async def send_report_task(account: str, data: dict):
             }''')
 
             if no_whatsapp_found:
-                logger.warn(f"⚠️ Número {formatted_phone} no tiene WhatsApp o no se encontró.", account=account)
+                logger.warn(f"Numero {formatted_phone} no tiene WhatsApp o no se encontro.", account=account)
                 await page.keyboard.press("Escape")
                 return
 
@@ -346,7 +346,7 @@ async def send_report_task(account: str, data: dict):
                 msg_box = await page.wait_for_selector(", ".join(msg_selectors), timeout=5000)
                 # logger.debug("[PASO 4] ✅ Selector principal encontrado", account=account)
             except:
-                logger.warn("⚠️ Probando selectores alternativos...", account=account)
+                logger.warn("Probando selectores alternativos...", account=account)
                 try:
                     fallback_selectors = [
                         'footer div.lexical-rich-text-input [contenteditable="true"]',
@@ -402,7 +402,7 @@ async def send_report_task(account: str, data: dict):
             label = data.get("label", "MENSAJE")
             total_prep = time.time() - start_task_time
             
-            logger.info(f"⏱️ {label} | ⚙️ Prep: {t_prep:.2f}s | 🔍 Búsq: {t_search:.2f}s | ⌨️ Escr: {t_typing:.2f}s | 🚀 Total: {total_prep:.2f}s", account=account)
+            logger.info(f"{label} | Prep: {t_prep:.2f}s | Busq: {t_search:.2f}s | Escr: {t_typing:.2f}s | Total: {total_prep:.2f}s", account=account)
 
             # --- PASO 6: Enviar ---
             pre_min = config_manager.get_global("pre_send_min", 1.0)
@@ -410,7 +410,7 @@ async def send_report_task(account: str, data: dict):
             pre_delay = random.uniform(pre_min, pre_max)
             
             if data.get("dry_run"):
-                logger.warn(f"🧪 DRY-RUN: OK (delay {pre_delay:.1f}s omitido)", account=account)
+                logger.warn(f"DRY-RUN: OK (delay {pre_delay:.1f}s omitido)", account=account)
             else:
                 await asyncio.sleep(pre_delay)
                 await page.keyboard.press("Enter")
@@ -422,11 +422,11 @@ async def send_report_task(account: str, data: dict):
             # logger.debug("[PASO 6] Chat cerrado.", account=account)
             
             total_time = time.time() - start_task_time
-            logger.info(f"🏁 Tarea completada exitosamente en {total_time:.2f}s", account=account)
+            logger.info(f"Tarea completada exitosamente en {total_time:.2f}s", account=account)
             return
 
         except Exception as e:
-            logger.error(f"❌ Error en intento {attempt}: {str(e)}", account=account)
+            logger.error(f"Error en intento {attempt}: {str(e)}", account=account)
             if attempt == 1:
                 await asyncio.sleep(5)
             else:
@@ -441,7 +441,7 @@ async def process_queue_item(account: str, data: dict):
     elif task_type == "message":
         await send_report_task(account, data)
     else:
-        logger.error(f"❌ Tipo de tarea desconocido: {task_type}", account=account)
+        logger.error(f"Tipo de tarea desconocido: {task_type}", account=account)
 
 # Alias para mantener compatibilidad con el resto del código si algo lo llamaba directamente
 send_message = process_queue_item

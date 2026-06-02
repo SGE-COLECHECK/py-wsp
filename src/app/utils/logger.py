@@ -68,7 +68,7 @@ class Logger:
             self.sent_counts = {"morning": 0, "afternoon": 0}
             self.account_stats = {}
             self.last_reset_day = now.day
-            self.info("🔄 Contador diario reiniciado.")
+            self.info("Contador diario reiniciado.")
 
     def increment_sent(self, account=None):
         self._check_reset()
