@@ -824,7 +824,7 @@ class WhatsAppUI:
             self.override_max_delay_val = cfg.get("override_max_delay", None)
             self.override_batch_size_val = cfg.get("override_batch_size", None)
             self.override_batch_pause_val = cfg.get("override_batch_pause", None)
-            self.test_phone_val = ""
+            self.test_phone_val = getattr(self, 'test_phone_val', "")
             self.show_config_client = None
         if imgui.begin_popup_modal("Client Config", True, imgui.WindowFlags_.always_auto_resize)[0]:
             name = getattr(self, 'current_cfg_name', 'Unknown')
@@ -879,11 +879,34 @@ class WhatsAppUI:
             if c_bp: self.override_batch_pause_val = _bp if _bp > 0 else None
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_CLOUD}  YCLOUD")
-            from app.core.ycloud_sender import get_account_phone_count, get_responded_count as grc_acc
-            pb = asyncio.run_coroutine_threadsafe(get_account_phone_count(name), self.loop).result()
-            rp = asyncio.run_coroutine_threadsafe(grc_acc(name), self.loop).result()
-            imgui.text(f"Phonebook: {pb}  |  Respondieron: {rp}")
-            imgui.text_disabled("Ir a tab YCLOUD → CONFIGURACIÓN YCLOUD POR CLIENTE")
+            from app.core.ycloud_sender import get_account_phone_count, get_responded_count as grc_acc, send_via_ycloud as svy
+            from datetime import datetime
+            cfg = config_manager.get_client_config(name)
+            enabled = cfg.get("ycloud_enabled", False)
+            mode = cfg.get("ycloud_mode", "hibrido")
+            pb_cnt = asyncio.run_coroutine_threadsafe(get_account_phone_count(name), self.loop).result()
+            rp_cnt = asyncio.run_coroutine_threadsafe(grc_acc(name), self.loop).result()
+            imgui.text(f"Phonebook: {pb_cnt}  |  Respondieron: {rp_cnt}  |  Estado: {'✅ Activo' if enabled else '❌ Desactivado'} ({mode})")
+            imgui.spacing()
+            imgui.text_disabled("Test YCloud — envía un mensaje directo para verificar:")
+            _, self.test_phone_val = imgui.input_text("Teléfono##yc_test", self.test_phone_val)
+            imgui.same_line()
+            if imgui.button("ENVIAR TEST##yc_test", (160, 30)):
+                phone_clean = "".join(filter(str.isdigit, self.test_phone_val))
+                if phone_clean:
+                    if enabled:
+                        result = asyncio.run_coroutine_threadsafe(
+                            svy(phone_clean, f"🧪 Test YCloud desde ColeCheck\nCliente: {name}\nHora: {datetime.now().strftime('%H:%M:%S')}", name),
+                            self.loop
+                        ).result()
+                        if result:
+                            logger.success(f"✅ TEST YCloud OK → {phone_clean}")
+                        else:
+                            logger.error(f"❌ TEST YCloud FALLÓ → {phone_clean}")
+                    else:
+                        logger.warn(f"⚠️ YCloud no está activado para {name}. Actívalo en tab YCLOUD")
+                else:
+                    logger.error("Ingresa un teléfono")
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.set_cursor_pos_x((btn_width - 150) / 2)
             if imgui.button("SAVE & CLOSE", (150, 30)):
