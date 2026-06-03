@@ -266,8 +266,8 @@ async def send_report_task(account: str, data: dict):
             
             if "web.whatsapp.com" not in page.url:
                 await page.goto("https://web.whatsapp.com")
-            
-            await page.wait_for_selector("#side", timeout=60000)
+
+            await page.wait_for_selector("#side", timeout=20000)
 
             # Limpiar cualquier popup o modal que haya quedado abierto
             await page.keyboard.press("Escape")

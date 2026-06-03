@@ -493,7 +493,8 @@ class WhatsAppUI:
                 for qn, _ in self.all_redis_queues:
                     if qn in queue_manager.paused_workers:
                         queue_manager.toggle_pause(qn)
-                    asyncio.run_coroutine_threadsafe(queue_manager.start_worker(qn), self.loop)
+                asyncio.run_coroutine_threadsafe(queue_manager.restart_all_workers(), self.loop)
+                logger.success("Todos los workers reiniciados")
             
             imgui.spacing()
             imgui.text("Current Redis Queues:")
