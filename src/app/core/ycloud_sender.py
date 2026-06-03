@@ -64,7 +64,6 @@ async def get_responded_phones(account: str = "") -> list:
 async def register_phone(account: str, phone: str):
     mode = config_manager.get_global("phonebook_mode", "all_day")
     if mode == "afternoon_only":
-        from datetime import datetime
         if datetime.now().hour < 12:
             return
     r = await queue_manager.get_redis()
