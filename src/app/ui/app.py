@@ -45,6 +45,10 @@ class WhatsAppUI:
         self.ycloud_responded_phones = []
         self.ycloud_responded_total = 0
         
+        # Cached data (filled by update_data async loop)
+        self._pb_cache = {}
+        self._yc_stats = {}
+        
         # Load configs
         self.ycloud_api_key = config_manager.get_global("ycloud_api_key", "")
         self.ycloud_from = config_manager.get_global("ycloud_from", "+51963828458")
@@ -62,9 +66,31 @@ class WhatsAppUI:
             for name in self.sessions:
                 self.queue_counts[name] = await queue_manager.get_queue_size(name)
             self.all_redis_queues = await queue_manager.get_all_queues()
-            from app.core.ycloud_sender import get_responded_count, get_responded_phones
+            from app.core.ycloud_sender import (
+                get_responded_count, get_responded_phones,
+                get_account_phone_count, get_phonebook_with_meta, get_phone_status,
+                get_responded_count as get_rc,
+            )
             self.ycloud_responded_total = await get_responded_count()
             self.ycloud_responded_phones = await get_responded_phones()
+            # Cache phonebook + ycloud stats per account
+            pb_cache = {}
+            yc_stats = {}
+            for acc in self.sessions:
+                yc_stats[acc] = {
+                    "phone_count": await get_account_phone_count(acc),
+                    "responded": await get_rc(acc),
+                }
+                phones = await get_phonebook_with_meta(acc)
+                for entry in phones:
+                    st = await get_phone_status(entry["phone"])
+                    pb_cache.setdefault(acc, []).append({
+                        "phone": entry["phone"],
+                        "first_seen": entry["first_seen"],
+                        "status": st,
+                    })
+            self._pb_cache = pb_cache
+            self._yc_stats = yc_stats
             try:
                 mem = self.process.memory_full_info().uss / (1024 * 1024)
                 for child in self.process.children(recursive=True):
@@ -72,7 +98,7 @@ class WhatsAppUI:
                 self.ram_usage = mem
                 self.cpu_usage = psutil.cpu_percent(interval=None)
             except: pass
-            await asyncio.sleep(1)
+            await asyncio.sleep(3)
 
     def load_excel(self):
         if not _tkinter_available:
@@ -498,7 +524,7 @@ class WhatsAppUI:
 
         elif self.active_tab == "YCLOUD":
             from datetime import datetime
-            from app.core.ycloud_sender import get_account_phone_count, get_responded_count as grc2, send_via_ycloud
+            from app.core.ycloud_sender import send_via_ycloud
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_CLOUD}  CONFIGURACIÓN YCLOUD POR CLIENTE")
             imgui.text_disabled("Cada cliente tiene su propia API Key, From y modo. Los cambios se guardan automáticamente al editar.")
             imgui.spacing()
@@ -541,11 +567,10 @@ class WhatsAppUI:
                     if c_fr:
                         config_manager.set_client_config(acc, {"ycloud_from": fr2})
                     imgui.table_next_column()
-                    pc = asyncio.run_coroutine_threadsafe(get_account_phone_count(acc), self.loop).result()
-                    imgui.text(str(pc))
+                    st = self._yc_stats.get(acc, {})
+                    imgui.text(str(st.get("phone_count", 0)))
                     imgui.table_next_column()
-                    rc = asyncio.run_coroutine_threadsafe(grc2(acc), self.loop).result()
-                    imgui.text(str(rc))
+                    imgui.text(str(st.get("responded", 0)))
                     imgui.table_next_column()
                     imgui.push_style_color(imgui.Col_.button, (0.3, 0.5, 0.8, 0.6))
                     if imgui.small_button("Config##" + acc):
@@ -645,10 +670,9 @@ class WhatsAppUI:
             imgui.begin_child("PhonebookTab", (0, 0), True)
             for acc in self.sessions:
                 cfg = config_manager.get_client_config(acc)
-                phone_count = asyncio.run_coroutine_threadsafe(get_account_phone_count(acc), self.loop).result()
-                resp_count = asyncio.run_coroutine_threadsafe(
-                    get_responded_count(acc), self.loop
-                ).result()
+                st = self._yc_stats.get(acc, {})
+                phone_count = st.get("phone_count", 0)
+                resp_count = st.get("responded", 0)
                 yc_enabled = cfg.get("ycloud_enabled", False)
                 yc_mode = cfg.get("ycloud_mode", "hibrido")
                 imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_DATABASE}  {acc}")
@@ -705,12 +729,11 @@ class WhatsAppUI:
             all_entries = []
             accounts = [self._pb_filter_client] if self._pb_filter_client != "TODOS" else self.sessions
             for acc in accounts:
-                phones = asyncio.run_coroutine_threadsafe(get_phonebook_with_meta(acc), self.loop).result()
-                for entry in phones:
-                    st = asyncio.run_coroutine_threadsafe(get_phone_status(entry["phone"]), self.loop).result()
+                for entry in self._pb_cache.get(acc, []):
+                    st = entry["status"]
                     if self._pb_filter_status == "Respondió" and st != "ycloud": continue
                     if self._pb_filter_status == "Sin respuesta" and st == "ycloud": continue
-                    all_entries.append({**entry, "account": acc, "status": st})
+                    all_entries.append({"phone": entry["phone"], "first_seen": entry["first_seen"], "account": acc, "status": st})
             total = len(all_entries)
             pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
             if self._pb_page >= pages: self._pb_page = 0
@@ -879,14 +902,13 @@ class WhatsAppUI:
             if c_bp: self.override_batch_pause_val = _bp if _bp > 0 else None
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_CLOUD}  YCLOUD")
-            from app.core.ycloud_sender import get_account_phone_count, get_responded_count as grc_acc, send_via_ycloud as svy
+            from app.core.ycloud_sender import send_via_ycloud as svy
             from datetime import datetime
             cfg = config_manager.get_client_config(name)
             enabled = cfg.get("ycloud_enabled", False)
             mode = cfg.get("ycloud_mode", "hibrido")
-            pb_cnt = asyncio.run_coroutine_threadsafe(get_account_phone_count(name), self.loop).result()
-            rp_cnt = asyncio.run_coroutine_threadsafe(grc_acc(name), self.loop).result()
-            imgui.text(f"Phonebook: {pb_cnt}  |  Respondieron: {rp_cnt}  |  Estado: {'✅ Activo' if enabled else '❌ Desactivado'} ({mode})")
+            st = self._yc_stats.get(name, {})
+            imgui.text(f"Phonebook: {st.get('phone_count', 0)}  |  Respondieron: {st.get('responded', 0)}  |  Estado: {'✅ Activo' if enabled else '❌ Desactivado'} ({mode})")
             imgui.spacing()
             imgui.text_disabled("Test YCloud — envía un mensaje directo para verificar:")
             _, self.test_phone_val = imgui.input_text("Teléfono##yc_test", self.test_phone_val)
