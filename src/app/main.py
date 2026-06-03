@@ -40,7 +40,7 @@ async def enqueue_report(account: str, request: Request, background_tasks: Backg
         respuestas = ["OK", "Entendido", "Recibido", "👍", "De acuerdo", "Listo", "Copiado", "Sí", "Conforme"]
         random_resp = random.choice(respuestas)
         
-        message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ 🎓 {alumno} || {tipo_bold}: {hora}\n"
+        message = f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ 🎓 {alumno} ▪️ {tipo_bold}: {hora}\n"
         message += f"✨ Responde {random_resp}"
 
     if not phone:

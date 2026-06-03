@@ -172,9 +172,11 @@ async def send_via_ycloud(phone: str, message: str, account: str) -> bool:
     if from_number and not from_number.startswith("+"):
         from_number = "+" + from_number
 
+    # Distinguir visualmente mensajes YCloud vs scraper
+    body = message.replace(" ▪️ ", " ▫️ ")
     payload = {
         "type": "text",
-        "text": {"body": message, "preview_url": False},
+        "text": {"body": body, "preview_url": False},
         "from": from_number,
         "to": to_phone,
     }
