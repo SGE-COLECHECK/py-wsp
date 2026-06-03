@@ -435,10 +435,18 @@ async def send_report_task(account: str, data: dict):
 async def process_queue_item(account: str, data: dict):
     """Enrutador de tareas dependiendo del tipo."""
     task_type = data.get("type", "message")
-    
+
     if task_type == "add_contact":
         await add_contact_task(account, data)
     elif task_type == "message":
+        phone = data.get("phone", "")
+        from app.core.ycloud_sender import send_via_ycloud, should_use_ycloud
+        if await should_use_ycloud(phone, account):
+            sent = await send_via_ycloud(phone, data.get("message", ""), account)
+            if sent:
+                logger.increment_sent(account)
+                return
+            logger.warn("YCloud falló, usando scraper", account=account)
         await send_report_task(account, data)
     else:
         logger.error(f"Tipo de tarea desconocido: {task_type}", account=account)

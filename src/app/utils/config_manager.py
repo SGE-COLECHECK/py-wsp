@@ -27,7 +27,8 @@ class ConfigManager:
                     if "ycloud_exchange_pen" not in data["global"]: data["global"]["ycloud_exchange_pen"] = 3.46
                     if "ycloud_colegio" not in data["global"]: data["global"]["ycloud_colegio"] = "Mi Colegio"
                     if "ycloud_numero" not in data["global"]: data["global"]["ycloud_numero"] = "999888777"
-                    if "ycloud_template" not in data["global"]: data["global"]["ycloud_template"] = "🚨🇨🇴🇱🇪✅ \nEstimados padres de familia 👨‍👩‍👧‍👦:\nEste año, *{Colegio}* viene implementando un sistema de control de *INGRESO* y *SALIDA* de estudiantes mediante credenciales escolares.\n\n📌 Guarde el siguiente número como:\n👉 colecheck – *{Numero}*  (escribir a ese whatsapp)\n\n📩 Luego envíe:\n\n🏫 Colegio: *{Colegio}*\n🎓 Grado y sección: *5-A* \n👦 Estudiante: *Yhon Yucra Castro*\n\n🎫 *Verifique que su hijo(a) lleve siempre su credencial, ya que las notificaciones dependen de su uso al ingresar y salir del colegio.*\n\n💬 Para mantener activo el servicio, responda o reaccione 👍 a los mensajes enviados."
+                    if "ycloud_template" not in data["global"]: data["global"]["ycloud_template"] = ""
+                    if "phonebook_mode" not in data["global"]: data["global"]["phonebook_mode"] = "all_day"
                     return data
             except: pass
         return {
@@ -45,7 +46,8 @@ class ConfigManager:
                 "ycloud_exchange_pen": 3.46,
                 "ycloud_colegio": "Mi Colegio",
                 "ycloud_numero": "999888777",
-                "ycloud_template": "🚨🇨🇴🇱🇪✅ \nEstimados padres de familia 👨‍👩‍👧‍👦:\nEste año, *{Colegio}* viene implementando un sistema de control de *INGRESO* y *SALIDA* de estudiantes mediante credenciales escolares.\n\n📌 Guarde el siguiente número como:\n👉 colecheck – *{Numero}*  (escribir a ese whatsapp)\n\n📩 Luego envíe:\n\n🏫 Colegio: *{Colegio}*\n🎓 Grado y sección: *5-A* \n👦 Estudiante: *Yhon Yucra Castro*\n\n🎫 *Verifique que su hijo(a) lleve siempre su credencial, ya que las notificaciones dependen de su uso al ingresar y salir del colegio.*\n\n💬 Para mantener activo el servicio, responda o reaccione 👍 a los mensajes enviados."
+                "ycloud_template": "🚨🇨🇴🇱🇪✅ \nEstimados padres de familia 👨‍👩‍👧‍👦:\nEste año, *{Colegio}* viene implementando un sistema de control de *INGRESO* y *SALIDA* de estudiantes mediante credenciales escolares.\n\n📌 Guarde el siguiente número como:\n👉 colecheck – *{Numero}*  (escribir a ese whatsapp)\n\n📩 Luego envíe:\n\n🏫 Colegio: *{Colegio}*\n🎓 Grado y sección: *5-A* \n👦 Estudiante: *Yhon Yucra Castro*\n\n🎫 *Verifique que su hijo(a) lleve siempre su credencial, ya que las notificaciones dependen de su uso al ingresar y salir del colegio.*\n\n💬 Para mantener activo el servicio, responda o reaccione 👍 a los mensajes enviados.",
+                "phonebook_mode": "all_day",
             },
             "clients": {}
         }
@@ -59,11 +61,26 @@ class ConfigManager:
         return list(self.settings["clients"].keys())
 
     def get_client_config(self, name):
-        return self.settings["clients"].get(name, {"headless": True})
+        default = {
+            "headless": True,
+            "ycloud_enabled": False,
+            "ycloud_mode": "hibrido",
+            "ycloud_api_key": "",
+            "ycloud_from": "",
+            "ycloud_url": "",
+        }
+        cfg = self.settings["clients"].get(name)
+        if cfg is None:
+            return default
+        for k, v in default.items():
+            cfg.setdefault(k, v)
+        return cfg
 
     def set_client_config(self, name, config):
         if name not in self.settings["clients"]:
             self.settings["clients"][name] = {"headless": True}
+        if "ycloud_api_key" in config and config["ycloud_api_key"]:
+            config["ycloud_api_key"] = config["ycloud_api_key"].strip().lower()
         self.settings["clients"][name].update(config)
         self.save()
 

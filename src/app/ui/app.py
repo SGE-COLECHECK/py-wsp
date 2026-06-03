@@ -18,6 +18,8 @@ from app.core.queue_manager import queue_manager
 from app.utils.logger import logger
 from app.utils.config_manager import config_manager
 
+PERU_TZ = -5
+
 class WhatsAppUI:
     def __init__(self, loop):
         self.loop = loop
@@ -40,6 +42,8 @@ class WhatsAppUI:
         self.ycloud_total_cost_usd = 0.0
         self.ycloud_is_sending = False
         self.show_ycloud_config = False
+        self.ycloud_responded_phones = []
+        self.ycloud_responded_total = 0
         
         # Load configs
         self.ycloud_api_key = config_manager.get_global("ycloud_api_key", "")
@@ -58,6 +62,9 @@ class WhatsAppUI:
             for name in self.sessions:
                 self.queue_counts[name] = await queue_manager.get_queue_size(name)
             self.all_redis_queues = await queue_manager.get_all_queues()
+            from app.core.ycloud_sender import get_responded_count, get_responded_phones
+            self.ycloud_responded_total = await get_responded_count()
+            self.ycloud_responded_phones = await get_responded_phones()
             try:
                 mem = self.process.memory_full_info().uss / (1024 * 1024)
                 for child in self.process.children(recursive=True):
@@ -307,12 +314,22 @@ class WhatsAppUI:
         imgui.same_line()
         if imgui.button(f"{icons_fontawesome.ICON_FA_PAPER_PLANE}  YCLOUD"):
             self.active_tab = "YCLOUD"
+        imgui.same_line()
+        if imgui.button(f"{icons_fontawesome.ICON_FA_REPLY_ALL}  RESPONSES"):
+            self.active_tab = "RESPONSES"
+        imgui.same_line()
+        if imgui.button(f"{icons_fontawesome.ICON_FA_BOOK}  PHONEBOOK"):
+            self.active_tab = "PHONEBOOK"
         imgui.separator()
 
         if self.active_tab == "LOGS":
             # --- LOGS HEADER STATS ---
             stats = logger.get_stats()
+            yc_stats = logger.get_ycloud_stats()
+            sc_stats = logger.get_scraper_stats()
             total = stats["morning"] + stats["afternoon"]
+            yc_total = yc_stats["morning"] + yc_stats["afternoon"]
+            sc_total = sc_stats["morning"] + sc_stats["afternoon"]
             
             imgui.begin_child("LogStats", (0, 40), True)
             imgui.text(f"{icons_fontawesome.ICON_FA_CHART_BAR}  HOY:")
@@ -321,6 +338,10 @@ class WhatsAppUI:
             imgui.same_line(); imgui.text_colored((1.0, 0.7, 0.3, 1.0), f"Tarde: {stats['afternoon']}")
             imgui.same_line(); imgui.text(" | ")
             imgui.same_line(); imgui.text_colored((0.2, 0.9, 0.5, 1.0), f"Total: {total}")
+            imgui.same_line(); imgui.text(" | ")
+            imgui.same_line(); imgui.text_colored((0.2, 0.6, 1.0, 1.0), f"YCloud: {yc_total}")
+            imgui.same_line(); imgui.text(" | ")
+            imgui.same_line(); imgui.text_colored((0.8, 0.8, 0.8, 1.0), f"Scraper: {sc_total}")
             imgui.end_child()
             
             imgui.spacing()
@@ -476,29 +497,105 @@ class WhatsAppUI:
             imgui.text_disabled("Escribe el texto exacto que quieres enviar. Sin variables, sin reemplazos.")
 
         elif self.active_tab == "YCLOUD":
-            if imgui.button(f"{icons_fontawesome.ICON_FA_COG}  YCLOUD CONFIGURATION"):
+            from app.core.ycloud_sender import get_account_phone_count, get_responded_count as grc2
+            if not hasattr(self, '_yc_buf'):
+                self._yc_buf = {}
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_CLOUD}  CONFIGURACIÓN YCLOUD POR CLIENTE")
+            imgui.text_disabled("Cada cliente tiene su propia API Key, From y modo. Si se deja vacío usa el valor global. La URL siempre usa el valor global.")
+            imgui.spacing()
+            imgui.begin_child("YCClientConfig", (0, 0), True)
+            if imgui.begin_table("YCClientCfg", 8, imgui.TableFlags_.resizable | imgui.TableFlags_.scroll_y | imgui.TableFlags_.borders):
+                imgui.table_setup_column("Cliente", imgui.TableColumnFlags_.width_fixed, 100)
+                imgui.table_setup_column("Enable")
+                imgui.table_setup_column("Modo")
+                imgui.table_setup_column("API Key")
+                imgui.table_setup_column("From")
+                imgui.table_setup_column("Teléfonos")
+                imgui.table_setup_column("Respondieron")
+                imgui.table_setup_column("Acción")
+                imgui.table_headers_row()
+                for acc in self.sessions:
+                    cfg = config_manager.get_client_config(acc)
+                    buf = self._yc_buf.setdefault(acc, {
+                        "enabled": cfg.get("ycloud_enabled", False),
+                        "mode": cfg.get("ycloud_mode", "hibrido"),
+                        "api_key": cfg.get("ycloud_api_key", ""),
+                        "from": cfg.get("ycloud_from", ""),
+                    })
+                    imgui.table_next_row()
+                    imgui.table_next_column(); imgui.text(acc)
+                    imgui.table_next_column()
+                    c_en, en = imgui.checkbox(f"##{acc}_en", buf["enabled"])
+                    if c_en: buf["enabled"] = en
+                    imgui.table_next_column()
+                    modes = ["solo_scraper", "hibrido", "solo_ycloud"]
+                    labels = ["Scraper", "Híbrido", "Solo YC"]
+                    cur = modes.index(buf["mode"]) if buf["mode"] in modes else 1
+                    c_md, cur2 = imgui.combo(f"##{acc}_md", cur, labels)
+                    if c_md: buf["mode"] = modes[cur2]
+                    imgui.table_next_column()
+                    c_ak, ak2 = imgui.input_text(f"##{acc}_ak", buf["api_key"], 40)
+                    if c_ak: buf["api_key"] = ak2
+                    imgui.table_next_column()
+                    c_fr, fr2 = imgui.input_text(f"##{acc}_fr", buf["from"], 16)
+                    if c_fr: buf["from"] = fr2
+                    imgui.table_next_column()
+                    pc = asyncio.run_coroutine_threadsafe(get_account_phone_count(acc), self.loop).result()
+                    imgui.text(str(pc))
+                    imgui.table_next_column()
+                    rc = asyncio.run_coroutine_threadsafe(grc2(acc), self.loop).result()
+                    imgui.text(str(rc))
+                    imgui.table_next_column()
+                    if imgui.small_button(f"⚙##{acc}"):
+                        self.show_config_client = acc
+                imgui.end_table()
+            imgui.end_child()
+            imgui.spacing()
+            changed_clients = [a for a, b in self._yc_buf.items()
+                               if b != {"enabled": config_manager.get_client_config(a).get("ycloud_enabled", False),
+                                        "mode": config_manager.get_client_config(a).get("ycloud_mode", "hibrido"),
+                                        "api_key": config_manager.get_client_config(a).get("ycloud_api_key", ""),
+                                        "from": config_manager.get_client_config(a).get("ycloud_from", "")}]
+            if changed_clients:
+                imgui.push_style_color(imgui.Col_.button, (0.2, 0.6, 0.1, 1))
+                if imgui.button(f"{icons_fontawesome.ICON_FA_SAVE}  GUARDAR CAMBIOS ({len(changed_clients)})", (250, 40)):
+                    for acc in changed_clients:
+                        b = self._yc_buf[acc]
+                        config_manager.set_client_config(acc, {
+                            "ycloud_enabled": b["enabled"],
+                            "ycloud_mode": b["mode"],
+                            "ycloud_api_key": b["api_key"],
+                            "ycloud_from": b["from"],
+                        })
+                    self._yc_buf.clear()
+                    logger.success("Configuración YCloud guardada y aplicada")
+                imgui.pop_style_color()
+                imgui.same_line()
+                if imgui.button("DESCARTAR", (120, 40)):
+                    self._yc_buf.clear()
+            else:
+                imgui.text_disabled("✅ Todos los cambios están guardados")
+                if imgui.button("ACTUALIZAR (recargar datos)", (250, 35)):
+                    self._yc_buf.clear()
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            if imgui.button(f"{icons_fontawesome.ICON_FA_COG}  YCLOUD GLOBAL CONFIGURATION"):
                 self.show_ycloud_config = True
-                
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), "YCLOUD EXCEL DATA & SENDING")
-            
             if imgui.button(f"{icons_fontawesome.ICON_FA_FILE_EXCEL}  LOAD EXCEL"):
                 self.load_excel()
             imgui.same_line()
-            
             if self.ycloud_is_sending:
                 imgui.text_colored((1.0, 0.6, 0.0, 1.0), "Sending in progress...")
             else:
                 if imgui.button(f"{icons_fontawesome.ICON_FA_PAPER_PLANE}  START SENDING"):
                     self.send_ycloud_messages()
-            
             total_loaded = len(self.ycloud_contacts)
             cost_pen = self.ycloud_total_cost_usd * self.ycloud_exchange_pen
             imgui.text(f"Loaded: {total_loaded} | ")
             imgui.same_line(); imgui.text_colored((0.2, 0.9, 0.5, 1.0), f"Sent: {self.ycloud_sent_count} | ")
             imgui.same_line(); imgui.text_colored((1.0, 0.2, 0.2, 1.0), f"Failed: {self.ycloud_failed_count} | ")
             imgui.same_line(); imgui.text_colored((1.0, 0.8, 0.2, 1.0), f"Cost: ${self.ycloud_total_cost_usd:.2f} USD (S/ {cost_pen:.2f} PEN)")
-            
             imgui.spacing()
             imgui.begin_child("YcloudTable", (0, 0), True)
             if imgui.begin_table("YCTable", 6, imgui.TableFlags_.resizable | imgui.TableFlags_.scroll_y | imgui.TableFlags_.borders):
@@ -509,7 +606,6 @@ class WhatsAppUI:
                 imgui.table_setup_column("Whatsapp")
                 imgui.table_setup_column("Status", imgui.TableColumnFlags_.width_fixed, 60)
                 imgui.table_headers_row()
-                
                 for contact in self.ycloud_contacts:
                     imgui.table_next_row()
                     imgui.table_next_column(); imgui.text(str(contact["nro"]))
@@ -525,7 +621,101 @@ class WhatsAppUI:
                         imgui.text_colored((0.2, 0.9, 0.5, 1.0), "Sent")
                     else:
                         imgui.text_colored((1.0, 0.2, 0.2, 1.0), "Failed")
-                
+                imgui.end_table()
+            imgui.end_child()
+
+        elif self.active_tab == "RESPONSES":
+            from app.core.ycloud_sender import get_account_phone_count, get_account_phones, get_all_phonebooks, get_responded_count
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_TOGGLE_ON}  PHONEBOOK MODE")
+            current_mode = config_manager.get_global("phonebook_mode", "all_day")
+            if imgui.radio_button("All day##pbm", current_mode == "all_day"):
+                config_manager.settings["global"]["phonebook_mode"] = "all_day"
+                config_manager.save()
+            imgui.same_line()
+            if imgui.radio_button("Afternoon only##pbm", current_mode == "afternoon_only"):
+                config_manager.settings["global"]["phonebook_mode"] = "afternoon_only"
+                config_manager.save()
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "PHONEBOOK POR CLIENTE")
+            imgui.spacing()
+            imgui.begin_child("PhonebookTab", (0, 0), True)
+            for acc in self.sessions:
+                cfg = config_manager.get_client_config(acc)
+                phone_count = asyncio.run_coroutine_threadsafe(get_account_phone_count(acc), self.loop).result()
+                resp_count = asyncio.run_coroutine_threadsafe(
+                    get_responded_count(acc), self.loop
+                ).result()
+                yc_enabled = cfg.get("ycloud_enabled", False)
+                yc_mode = cfg.get("ycloud_mode", "hibrido")
+                imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_DATABASE}  {acc}")
+                imgui.same_line()
+                if yc_enabled:
+                    imgui.text_colored((0.2, 0.9, 0.5, 1.0), f"[{yc_mode}]")
+                imgui.text(f"  Teléfonos: {phone_count}  |  Respondieron: {resp_count}")
+                imgui.separator()
+            imgui.end_child()
+            imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), "TODOS LOS QUE RESPONDIERON (ventana 24h)")
+            imgui.text(f"Total: {self.ycloud_responded_total}")
+            imgui.begin_child("RespTable", (0, 0), True)
+            if imgui.begin_table("RespTable", 2, imgui.TableFlags_.resizable | imgui.TableFlags_.scroll_y | imgui.TableFlags_.borders):
+                imgui.table_setup_column("#", imgui.TableColumnFlags_.width_fixed, 30)
+                imgui.table_setup_column("Teléfono")
+                imgui.table_headers_row()
+                for i, phone in enumerate(self.ycloud_responded_phones, 1):
+                    imgui.table_next_row()
+                    imgui.table_next_column(); imgui.text(str(i))
+                    imgui.table_next_column(); imgui.text(phone)
+                imgui.end_table()
+            imgui.end_child()
+
+        elif self.active_tab == "PHONEBOOK":
+            from app.core.ycloud_sender import get_phonebook_with_meta, get_phone_status
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_DATABASE}  PHONEBOOK — BASE DE DATOS LOCAL PERSISTENTE")
+            imgui.spacing()
+            imgui.text_disabled("Almacenada en Redis (Docker volumen: anty_wsp_redis_data, persistente con AOF)")
+            imgui.text_disabled("Cada vez que llega un teléfono por API se registra automáticamente en phonebook:{account}")
+            imgui.text_disabled("Soporta hasta 5000+ teléfonos por cliente (Redis Set, O(1) por operación)")
+            imgui.text_disabled("YCloud = respondió en las últimas 24h | Scraper = no ha respondido o expiró")
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.begin_child("PBTable", (0, 0), True)
+            if imgui.begin_table("PBTable", 6, imgui.TableFlags_.resizable | imgui.TableFlags_.scroll_y | imgui.TableFlags_.borders):
+                imgui.table_setup_column("#", imgui.TableColumnFlags_.width_fixed, 30)
+                imgui.table_setup_column("Cuenta")
+                imgui.table_setup_column("Teléfono")
+                imgui.table_setup_column("Primera vez")
+                imgui.table_setup_column("Estado")
+                imgui.table_setup_column("Canal")
+                imgui.table_headers_row()
+                idx = 0
+                for acc in self.sessions:
+                    phones = asyncio.run_coroutine_threadsafe(
+                        get_phonebook_with_meta(acc), self.loop
+                    ).result()
+                    for entry in phones:
+                        idx += 1
+                        status = asyncio.run_coroutine_threadsafe(
+                            get_phone_status(entry["phone"]), self.loop
+                        ).result()
+                        imgui.table_next_row()
+                        imgui.table_next_column(); imgui.text(str(idx))
+                        imgui.table_next_column(); imgui.text(acc)
+                        imgui.table_next_column(); imgui.text(entry["phone"])
+                        sep = "T" if "T" in entry["first_seen"] else " "
+                        display_time = entry["first_seen"].split(sep)[1][:8] if sep in entry["first_seen"] else entry["first_seen"][:8]
+                        imgui.table_next_column(); imgui.text_disabled(display_time)
+                        imgui.table_next_column()
+                        if status == "ycloud":
+                            imgui.text_colored((0.2, 0.9, 0.5, 1.0), "Respondió")
+                        else:
+                            imgui.text_colored((0.6, 0.6, 0.6, 1.0), "Sin respuesta")
+                        imgui.table_next_column()
+                        cfg = config_manager.get_client_config(acc)
+                        mode = cfg.get("ycloud_mode", "hibrido") if cfg.get("ycloud_enabled", False) else "solo_scraper"
+                        if status == "ycloud" and mode != "solo_scraper":
+                            imgui.text_colored((0.2, 0.6, 1.0, 1.0), "YCloud")
+                        else:
+                            imgui.text_colored((0.7, 0.7, 0.7, 1.0), "Scraper")
                 imgui.end_table()
             imgui.end_child()
 
@@ -642,6 +832,13 @@ class WhatsAppUI:
             if c_bs: self.override_batch_size_val = _bs if _bs > 0 else None
             if c_bp: self.override_batch_pause_val = _bp if _bp > 0 else None
             imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_CLOUD}  YCLOUD")
+            from app.core.ycloud_sender import get_account_phone_count, get_responded_count as grc_acc
+            pb = asyncio.run_coroutine_threadsafe(get_account_phone_count(name), self.loop).result()
+            rp = asyncio.run_coroutine_threadsafe(grc_acc(name), self.loop).result()
+            imgui.text(f"Phonebook: {pb}  |  Respondieron: {rp}")
+            imgui.text_disabled("Ir a tab YCLOUD → CONFIGURACIÓN YCLOUD POR CLIENTE")
+            imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.set_cursor_pos_x((btn_width - 150) / 2)
             if imgui.button("SAVE & CLOSE", (150, 30)):
                 config_manager.set_client_config(name, {
@@ -651,7 +848,7 @@ class WhatsAppUI:
                     "override_min_delay": self.override_min_delay_val,
                     "override_max_delay": self.override_max_delay_val,
                     "override_batch_size": self.override_batch_size_val,
-                    "override_batch_pause": self.override_batch_pause_val
+                    "override_batch_pause": self.override_batch_pause_val,
                 })
                 imgui.close_current_popup()
             imgui.end_popup()
@@ -683,6 +880,8 @@ class WhatsAppUI:
             c6, self.ycloud_template = imgui.input_text_multiline("##ycloudtpl", self.ycloud_template, (imgui.get_content_region_avail().x, 150))
             
             if c1 or c2 or c3 or c4 or c5 or c_col or c_num or c6:
+                if self.ycloud_api_key:
+                    self.ycloud_api_key = self.ycloud_api_key.strip().lower()
                 config_manager.settings["global"].update({
                     "ycloud_api_key": self.ycloud_api_key,
                     "ycloud_url": self.ycloud_url,

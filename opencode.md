@@ -1,212 +1,157 @@
-# py-wsp - ColeCheck WhatsApp Admin
+# WSP Admin — Documentación del proyecto
 
-## Project Overview
-Desktop app for bulk WhatsApp messaging automation for the **ColeCheck** educational platform. School administrators send automated WhatsApp notifications to parents (attendance reports, welcome messages, credentials, registration links, agenda, communications, warnings). Uses **Playwright** (headless browser) + **WhatsApp Web**, **Redis** backend, **Dear ImGui** desktop GUI.
+## Arquitectura
 
-## Tech Stack
-- **Language:** 100% Python
-- **Web Server:** FastAPI + Uvicorn (port 3000)
-- **Browser Automation:** Playwright (Chromium, headless by default)
-- **Queue:** Redis 7 (via Docker) - async FIFO queue per account
-- **GUI:** Dear ImGui via `imgui-bundle`
-- **Templates:** Custom welcome message with `{usuario}`, `{contrasena}`, `{url}`, `{fecha}` placeholders
-- **Alternative channel:** YCloud WhatsApp Business API (Excel import, cost tracking)
-
-## Directory Structure
 ```
 py-wsp/
-├── .gitignore
-├── COLECHECK_WSP_ADMIN.ini      # ImGui layout config
-├── docker-compose.yml            # Redis 7 Alpine (port 6379, volume anty_wsp_redis_data)
-├── requirements.txt              # Python deps
-├── run.py                        # Entry point (launches 3 threads)
-├── opencode.md                   # This file
-├── data/
-│   ├── config.json               # Runtime config (gitignored)
-│   ├── debug/                    # Debug screenshots
-│   └── sessions/                 # Chromium profiles per account (gitignored)
 ├── src/
 │   └── app/
-│       ├── main.py               # FastAPI server + 9 REST endpoints
 │       ├── core/
-│       │   ├── browser_manager.py  # Playwright singleton, per-account contexts
-│       │   ├── message_sender.py   # WhatsApp automation (send + add contact)
-│       │   └── queue_manager.py    # Redis async queue workers
+│       │   ├── ycloud_sender.py   ← Lógica híbrida YCloud + phonebook
+│       │   ├── message_sender.py  ← Envío por Playwright (scraper) + router
+│       │   ├── queue_manager.py   ← Colas Redis por cliente
+│       │   └── browser_manager.py ← Navegadores Playwright
 │       ├── ui/
-│       │   └── app.py            # Dear ImGui desktop GUI
-│       └── utils/
-│           ├── config_manager.py  # JSON config CRUD
-│           └── logger.py         # Terminal + GUI logger (circular buffer 300)
-├── test_api.py
-└── test_new_endpoints.py
+│       │   └── app.py             ← GUI imgui (LOGS, QUEUES, YCLOUD, RESPONSES, PHONEBOOK)
+│       ├── utils/
+│       │   ├── config_manager.py  ← Config persistente (global + por cliente)
+│       │   └── logger.py          ← Logger con colores, contadores diarios
+│       └── main.py                ← FastAPI: 9 endpoints API + webhook
+├── webhook.py                     ← Standalone (no se usa con main.py; solo logging)
+├── data/config.json               ← Config persistente
+└── run.py                         ← Entry point
 ```
 
-## Architecture (3 Threads)
-```
-run.py
-├── Thread 1: Playwright async event loop (asyncio)
-├── Thread 2: FastAPI/Uvicorn server (port 3000)
-└── Thread 3 (main): Dear ImGui desktop GUI
-```
+## Sistema Híbrido YCloud + Scraper
 
-Data flow: `External System → POST → FastAPI → enqueue → Redis Queue → worker → Playwright (WhatsApp Web) → Parent's Phone`
+### Flujo
+
+1. Llega un POST a `/whatsapp/wapp-web/{account}/send*`
+2. Se encola en Redis (`queue:{account}`)
+3. `process_queue_item` decide:
+   - Si `should_use_ycloud` → `send_via_ycloud`
+   - Si falla o no aplica → `send_report_task` (Playwright)
+
+### Modos por cliente
+
+| Modo | Comportamiento |
+|------|---------------|
+| `solo_scraper` | Siempre por Playwright |
+| `hibrido` | YCloud si respondió en < 24h, sino scraper |
+| `solo_ycloud` | Siempre por YCloud (sin fallback) |
+
+### ¿Cómo sabe si el padre respondió?
+
+- Webhook YCloud (`POST /webhook`) recibe `whatsapp.inbound_message.received`
+- Guarda `response:{phone_normalized}` con TTL 86400s (24h) en Redis
+- `should_use_ycloud` verifica si esa key existe
+
+### Phonebook
+
+- `phonebook:{account}` — set de teléfonos por cliente
+- `phonebook:meta:{account}` — hash phone→first_seen
+- `phonebook:reverse` — hash phone→account (para webhook)
+- Los teléfonos se registran automáticamente via `register_phone` en todos los endpoints API
+
+### Formato de teléfono
+
+- `normalize_phone` → limpia no-dígitos, agrega prefijo `51` si falta
+- `send_via_ycloud` → envía como `+519XXXXXXXX`
+- Almacenado en Redis sin `+` (e.g. `51940740243`)
+- Capacidad: Redis Sets soportan millones. UI probada hasta 5000+ por cliente.
+
+### Zona horaria
+
+- `first_seen` en phonebook se almacena en **hora Lima (UTC-5)**
+- Formato: `YYYY-MM-DD HH:MM:SS`
+- `response:{phone}` usa `time.time()` (epoch Unix, UTC) — timezone-independiente, solo se compara contra `time() - 86400`
+
+## Configuración
+
+### Global (`data/config.json` → `_global_`)
+| Clave | Default | Descripción |
+|-------|---------|-------------|
+| `ycloud_api_key` | `""` | API key global |
+| `ycloud_from` | `"+51963828458"` | Número desde (global) |
+| `ycloud_url` | `"https://api.ycloud.com/v2/whatsapp/messages/sendDirectly"` | Endpoint API |
+| `phonebook_mode` | `"all_day"` | `"all_day"` o `"afternoon_only"` |
+
+### YCLOUD Tab — Save button
+
+Los cambios en la tabla del tab YCLOUD **no se guardan automáticamente**. Quedan en un buffer (`_yc_buf`) hasta que el usuario presiona **"GUARDAR CAMBIOS"**. Esto evita escrituras accidentales en cada tecla. Botón "DESCARTAR" para re-sincronizar con el archivo.
+
+### Por cliente (en `data/config.json` → `clients.{name}`)
+| Clave | Default | Descripción |
+|-------|---------|-------------|
+| `ycloud_enabled` | `false` | Activar YCloud |
+| `ycloud_mode` | `"hibrido"` | Modo de envío |
+| `ycloud_api_key` | `""` | API key (hereda global si vacío) |
+| `ycloud_from` | `""` | Número desde (hereda global si vacío) |
+| `ycloud_url` | `""` | URL API (hereda global si vacío) |
 
 ## API Endpoints
-All under `/whatsapp/wapp-web/{account}/`:
-- `POST /senddReport` - Daily attendance report
-- `POST /addNumber` - Add contact
-- `POST /sendWelcomeMessage` - Welcome + login credentials
-- `POST /sendRegistrationLink` - Registration link
-- `POST /sendCredentials` - Credentials message
-- `POST /sendwReport` - Weekly attendance report
-- `POST /sendAgenda` - Academic agenda
-- `POST /sendComunicado` - Official communication
-- `POST /sendWarning` - Disciplinary warning (severity: leve/moderado/grave)
-- `GET /health` - Redis connection health check
 
-All with `dry_run` flag. All responses: `{queueId, sessionName, status: "queued"}`.
+| Ruta | Descripción |
+|------|-------------|
+| `POST /webhook` | Webhook YCloud (inbound messages) |
+| `GET /webhook?challenge=X` | Verificación YCloud challenge |
+| `GET /health` | Health check |
+| `POST /whatsapp/wapp-web/{account}/senddReport` | Reporte diario |
+| `POST /whatsapp/wapp-web/{account}/addNumber` | Agregar contacto |
+| `POST /whatsapp/wapp-web/{account}/sendWelcomeMessage` | Bienvenida |
+| `POST /whatsapp/wapp-web/{account}/sendRegistrationLink` | Link registro |
+| `POST /whatsapp/wapp-web/{account}/sendCredentials` | Credenciales |
+| `POST /whatsapp/wapp-web/{account}/sendwReport` | Reporte semanal |
+| `POST /whatsapp/wapp-web/{account}/sendAgenda` | Agenda escolar |
+| `POST /whatsapp/wapp-web/{account}/sendComunicado` | Comunicado |
+| `POST /whatsapp/wapp-web/{account}/sendWarning` | LLamado de atención |
 
-## Key Components
+## Redis Keys
 
-### Browser Manager (`browser_manager.py`)
-- Singleton, per-account persistent Chromium contexts (`data/sessions/profile_{name}/`)
-- States: OFFLINE → STARTING → READY → ERROR
-- Monitors `#side` selector for login detection
-- Can run headless or visible (configurable per account)
-- Cleans up SingletonLock files
+| Key | Tipo | TTL | Propósito |
+|-----|------|-----|-----------|
+| `queue:{account}` | List | - | Cola de mensajes |
+| `phonebook:{account}` | Set | - | Teléfonos del cliente |
+| `phonebook:meta:{account}` | Hash | - | phone→first_seen |
+| `phonebook:reverse` | Hash | - | phone→account lookup |
+| `response:{phone}` | String | 86400s | Última respuesta (24h) |
+| `ycloud:responded` | Set | - | Todos los que respondieron |
+| `ycloud:responded:{account}` | Set | - | Por cliente |
 
-### Message Sender (`message_sender.py`)
-- `send_report_task()`: Search contact → find input box → type/paste → send (2 retries)
-- `add_contact_task()`: New Chat → New Contact → fill fields → detect status → save (2 attempts)
-- `process_queue_item()`: Router by `data.type`
-- Two send modes: **typing** (letter-by-letter) or **paste** (clipboard)
-- Random pre-send delay, timing per phase (prep/search/typing/total)
+## Issues conocidos / Edge cases
 
-### Queue Manager (`queue_manager.py`)
-- Redis key format: `queue:{account_name}`
-- Auto-starts workers on enqueue
-- Pause/resume per account
-- Batch processing (default: 20 messages, 60s pause)
-- Random inter-message delay (default 2-5s)
-- Configurable via GUI (Global Config tab)
+### API key case-sensitive
+YCloud rechaza keys con mayúsculas. El `config_manager.set_client_config` convierte a minúsculas automáticamente. El modal global también aplica `.lower()`.
 
-### GUI (`ui/app.py`)
-- **Sidebar** (28%, min 280px): Start All, per-account status (enable/auth/play/settings/delete), New Client button
-- **Tabs**: LOGS (colored table), GLOBAL CONFIG (sliders), YCLOUD (Excel import + send)
-- **Bottom bar**: Redis status, CPU/RAM
-- **Modals**: Delete/add client, config, YCloud settings
-- **Theme**: DarculaDarker
+### Formato `from` number
+Si el usuario escribe `51963828458` sin `+`, `send_via_ycloud` agrega `+` automáticamente.
 
-### Logger (`logger.py`)
-- Singleton, 300-entry circular buffer
-- ANSI terminal colors + ImGui UI colors
-- Per-account color cycling (8 colors)
-- Daily stats (morning/afternoon split)
+### Teléfonos sin prefijo 51
+`normalize_phone` agrega `51` si falta. Si el teléfono tiene menos de 9 dígitos después del 51, igual se concatena (puede dar número inválido).
 
-### Config Manager (`config_manager.py`)
-- Singleton, `data/config.json`
-- Global: redis host/port, delays, batch settings, send mode, YCloud config
-- Per-client: headless, enabled
-- Auto-initializes defaults
+### Dos webhooks
+Hay dos implementaciones:
+- `main.py:564` — integrado en FastAPI, hace `store_response` + `lookup_account`
+- `webhook.py` — standalone, solo loguea eventos
 
-## Dependencies
-- fastapi, uvicorn, pydantic (API)
-- playwright (browser automation)
-- imgui-bundle (desktop GUI)
-- redis + hiredis (queue)
-- psutil (CPU/RAM monitoring)
-- requests (YCloud API + tests)
-- openpyxl (Excel import)
+Usar `main.py` para el sistema híbrido. `webhook.py` es para debug.
 
-## Infrastructure (Docker)
-```yaml
-redis:7-alpine, container: anty_wsp_redis, port 6379
-persistent volume, AOF fsync every sec, 512MB memory limit
-custom bridge network: anty_wsp_network
+### Validación de 9 dígitos
+Algunos endpoints rechazan teléfonos != 9 dígitos (después de limpiar). Números peruanos válidos siempre tienen 9, pero podría fallar si llega un número con código de país incluido (e.g. 51940740243 = 11 dígitos → rechazado).
+
+### `logger.increment_sent` duplicado
+`process_queue_item` llama `logger.increment_sent` si YCloud funciona (y hace return). Si YCloud falla, `send_report_task` también llama `increment_sent`. No hay doble conteo por el return temprano.
+
+## Cómo agregar un nuevo endpoint API
+
+1. Crear ruta POST en `main.py` con `background_tasks: BackgroundTasks`
+2. Llamar `register_phone(account, phone)` para phonebook automático
+3. Encolar con `queue_manager.enqueue(account, payload)`
+4. El `type` del payload debe ser `"message"` para que `process_queue_item` lo rutee
+
+## Cómo correr
+
+```bash
+python run.py --linux
+# Abre GUI en puerto 3000 (FastAPI + UI)
 ```
-
-## Git History
-- **Origin:** `https://github.com/SGE-COLECHECK/py-wsp.git`
-- **Branch:** `overridewelcome` (created from `main`)
-- **Branches:** `main`, `overridewelcome`
-- **Commits:** 18 (2026-05-04 to 2026-05-13)
-- **Last commit message:** "send hjll"
-
-## Testing
-- `test_api.py`: Tests daily report, welcome, credentials (dry-run, account: ie-manuel)
-- `test_new_endpoints.py`: Tests welcome + registration link (dry-run, account: test-session)
-
-## Conventions
-- Spanish throughout (UI, logs, templates)
-- Peruvian phone numbers (+51, 9 digits)
-- Account names as URL path params (e.g., `ie-manuel`)
-- `{usuario}`, `{contrasena}`, `{url}`, `{fecha}` template vars
-- Anti-spam: random delays, batch pauses, message variability, dry-run mode
-- Error resilience: 2 retries, screenshots to `data/errors/`, fallback CSS selectors
-
-## Contact Addition Status Detection
-Detected phone statuses: whatsapp, duplicate, not_on_whatsapp, new (based on DOM elements in the new contact flow)
-
----
-
-## `overridewelcome` Branch Features
-
-### Per-Client Welcome Message Override
-Each client/account can have its own override settings (in `config.json` under `clients.{name}`):
-- `override_welcome` (bool) - Enable custom welcome message for this client
-- `custom_welcome_msg` (str) - Texto EXACTO que se enviará. Sin variables, sin reemplazos. Soporta saltos de línea.
-- `override_min_delay` (int | null) - Per-client min delay between msgs (null = use global)
-- `override_max_delay` (int | null) - Per-client max delay between msgs (null = use global)
-- `override_batch_size` (int | null) - Per-client batch size (null = use global)
-- `override_batch_pause` (int | null) - Per-client batch pause in seconds (null = use global)
-
-### Files Changed
-- `config_manager.py`: New methods `get_client_override()` and `get_client_delay()` with fallback to global
-- `queue_manager.py`: Uses `get_client_delay()` for per-client delays/batches
-- `main.py`: `sendWelcomeMessage` reads override from client config instead of global
-- `ui/app.py`: Client Config modal now has sections for Welcome Override, Delay Overrides, Batch Overrides; GLOBAL CONFIG tab updated with notice
-
-### How to Use
-1. Click **⚙** (gear icon) next to a client in the sidebar
-2. Enable "Override Welcome Message", write custom template
-3. Set delay/batch overrides (0 = use global settings from GLOBAL CONFIG tab)
-4. Click **SAVE & CLOSE**
-5. The welcome message and queue delays will now use per-client values
-
-### Test Send (Client Config)
-When override is enabled, a **TEST SEND** section appears:
-- Input phone number (with 51 prefix)
-- Click **SEND TEST** → enqueues the override message immediately to that number
-
-### `--linux` / `--develop` Flag
-`run.py` detects `--linux` or `--develop` in argv to activate Ubuntu 26.04 Playwright compatibility (`.browsers/` path + platform override). Without flag, runs clean (no env vars) — compatible with Windows production.
-
-## Session Changes (2026-05-27)
-
-### Welcome Message Structure
-- **Header fijo** (siempre se antepone): `🚨🇨🇴🇱🇪✅ *[fecha]* 👋 ¡Bienvenido/a!`
-- **Override = solo el cuerpo**: El text area del override es únicamente el cuerpo del mensaje. El header con marca y fecha se agrega automáticamente.
-- **Sin override**: Se usa un cuerpo por defecto (texto de bienvenida genérico).
-- **Sin f-strings**: Se usa `.format()` para evitar errores de encoding con Unicode en Windows.
-- **Sin zero-width spaces**: Se eliminaron los caracteres U+200B que rompían el parser de Python en Windows.
-
-### Search Delay
-- Nuevo setting global `search_delay` (default 2.0s) en GLOBAL CONFIG.
-- Pausa después de escribir el número en el buscador y antes de presionar Enter.
-- Da tiempo a WhatsApp para encontrar el contacto.
-- Post-Enter wait aumentado de 0.5s a 1.0s.
-
-### Windows 500 Error Fixed
-- El error `500 Internal Server Error` en `sendWelcomeMessage` era por emojis con zero-width joiners dentro de f-strings en Windows.
-- Solución: usar unicode escapes (`\U0001F6A8`) en strings regulares con `.format()`.
-
-### Other Changes
-- **overridewelcome branch**: Per-client welcome override + delay/batch overrides
-- **Welcome override simplified**: No more `{usuario}`, `{contrasena}`, `{url}`, `{fecha}` — just raw text, sent as-is. Header (brand + date) is auto-prepended.
-- **tkinter**: Compiled `_tkinter` from Python 3.14.4 source + extracted Tcl/Tk debs into `.tk-lib/` for this Linux dev machine (no sudo needed)
-- **Playwright**: Browsers installed at default location via `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 playwright install chromium`
-- **run.py**: Clean by default; `--linux`/`--develop` flag activates Ubuntu 26.04 patches (`.browsers/` + platform override)
-- **Config Manager**: New `get_client_override()` and `get_client_delay()` per-client with global fallback
-- **Queue Manager**: Uses `get_client_delay()` for per-client batch/delay settings
-- **GUI**: Client Config modal now has: Welcome Override (cuerpo), Test Send, Delay Overrides, Batch Overrides
-- **start.sh**: Helper script that activates venv and runs with `--linux`

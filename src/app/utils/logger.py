@@ -37,6 +37,8 @@ class Logger:
             cls._instance.account_colors = {}
             cls._instance.sent_counts = {"morning": 0, "afternoon": 0}
             cls._instance.account_stats = {} # {account: {"morning": 0, "afternoon": 0}}
+            cls._instance.ycloud_sent = {"morning": 0, "afternoon": 0}
+            cls._instance.ycloud_account_stats = {}
             cls._instance.last_reset_day = datetime.now().day
         return cls._instance
 
@@ -67,6 +69,8 @@ class Logger:
         if now.day != self.last_reset_day:
             self.sent_counts = {"morning": 0, "afternoon": 0}
             self.account_stats = {}
+            self.ycloud_sent = {"morning": 0, "afternoon": 0}
+            self.ycloud_account_stats = {}
             self.last_reset_day = now.day
             self.info("Contador diario reiniciado.")
 
@@ -74,13 +78,21 @@ class Logger:
         self._check_reset()
         now = datetime.now()
         period = "morning" if now.hour < 12 else "afternoon"
-        
         self.sent_counts[period] += 1
-        
         if account:
             if account not in self.account_stats:
                 self.account_stats[account] = {"morning": 0, "afternoon": 0}
             self.account_stats[account][period] += 1
+
+    def increment_ycloud_sent(self, account=None):
+        self._check_reset()
+        now = datetime.now()
+        period = "morning" if now.hour < 12 else "afternoon"
+        self.ycloud_sent[period] += 1
+        if account:
+            if account not in self.ycloud_account_stats:
+                self.ycloud_account_stats[account] = {"morning": 0, "afternoon": 0}
+            self.ycloud_account_stats[account][period] += 1
 
     def debug(self, message, account=None): self._add("DEBUG", self.ICONS["DEBUG"], message, account)
     def info(self, message, account=None): self._add("INFO", self.ICONS["INFO"], message, account)
@@ -128,5 +140,16 @@ class Logger:
         self._check_reset()
         stats = self.account_stats.get(account, {"morning": 0, "afternoon": 0})
         return stats["morning"] + stats["afternoon"]
+
+    def get_ycloud_stats(self):
+        self._check_reset()
+        return self.ycloud_sent
+
+    def get_scraper_stats(self):
+        self._check_reset()
+        return {
+            "morning": self.sent_counts["morning"] - self.ycloud_sent["morning"],
+            "afternoon": self.sent_counts["afternoon"] - self.ycloud_sent["afternoon"],
+        }
 
 logger = Logger()

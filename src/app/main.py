@@ -1,6 +1,8 @@
 import asyncio
+import json
 from fastapi import FastAPI, BackgroundTasks, Request
 from app.core.queue_manager import queue_manager
+from app.core.ycloud_sender import store_response, register_phone, lookup_account
 from app.utils.logger import logger
 from app.ui.app import run_gui_app
 
@@ -45,7 +47,8 @@ async def enqueue_report(account: str, request: Request, background_tasks: Backg
         logger.error(f"[{account}] Error: No se encontró 'telefono_padre' en el JSON")
         return {"status": "error", "message": "Falta el teléfono"}
 
-    # Encolar para procesamiento asíncrono en Redis
+    background_tasks.add_task(register_phone, account, phone)
+
     payload = {"phone": phone, "message": message, "label": "REPORTE DIARIO"}
     background_tasks.add_task(queue_manager.enqueue, account, payload)
     
@@ -59,6 +62,8 @@ async def add_number(account: str, request: Request, background_tasks: Backgroun
 
     if not nombre or not telefono:
         return {"status": "error", "message": "Faltan datos obligatorios (nombre, telefono)"}
+
+    background_tasks.add_task(register_phone, account, telefono)
 
     payload = {
         "type": "add_contact",
@@ -94,6 +99,8 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
 
     if not telefono or not usuario or not contrasena or not url:
         return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre, usuario, contrasena, url)"}
+
+    background_tasks.add_task(register_phone, account, telefono)
 
     client_cfg = config_manager.get_client_config(account)
     override_enabled = client_cfg.get("override_welcome", False)
@@ -156,8 +163,8 @@ async def send_registration_link(account: str, request: Request, background_task
         logger.error("Faltan datos obligatorios (telefono_padre, url)", account=account)
         return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre, url)"}
 
-    # Validar teléfono (debe ser 9 dígitos)
     phone_clean = "".join(filter(str.isdigit, str(telefono)))
+    background_tasks.add_task(register_phone, account, phone_clean)
     if len(phone_clean) != 9:
         logger.error(f"Teléfono inválido: {telefono} (debe ser 9 dígitos)", account=account)
         return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
@@ -225,10 +232,10 @@ async def send_credentials(account: str, request: Request, background_tasks: Bac
         logger.error(f"Teléfono inválido: {telefono} (debe ser 9 dígitos)", account=account)
         return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
 
+    background_tasks.add_task(register_phone, account, phone_clean)
+
     import datetime
     today = datetime.datetime.now().strftime("%d/%m/%Y")
-
-    # Usar la URL proporcionada o construirla dinámicamente
     login_url = url_over if url_over else f"https://panel.colecheck.com/{tenant_id}/login"
 
     # Construir mensaje de credenciales resaltando información clave
@@ -284,6 +291,8 @@ async def send_weekly_report(account: str, request: Request, background_tasks: B
     
     if not telefono:
         return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre)"}
+
+    background_tasks.add_task(register_phone, account, telefono)
 
     dias = {
         "Lunes": data.get("lunes", ""),
@@ -374,6 +383,8 @@ async def send_agenda(account: str, request: Request, background_tasks: Backgrou
     if len(phone_clean) != 9:
         return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
 
+    background_tasks.add_task(register_phone, account, phone_clean)
+
     lines = [
         "📘 *AGENDA ESCOLAR* 🇨​​​​​🇴​​​​​🇱​​​​​🇪✅",
         "",
@@ -433,6 +444,8 @@ async def send_comunicado(account: str, request: Request, background_tasks: Back
     phone_clean = "".join(filter(str.isdigit, str(telefono)))
     if len(phone_clean) != 9:
         return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
+
+    background_tasks.add_task(register_phone, account, phone_clean)
 
     lines = [
         "📢 *COMUNICADO* 🇨​​​​​🇴​​​​​🇱​​​​​🇪✅",
@@ -494,6 +507,8 @@ async def send_warning(account: str, request: Request, background_tasks: Backgro
     if len(phone_clean) != 9:
         return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
 
+    background_tasks.add_task(register_phone, account, phone_clean)
+
     # Emoji de gravedad
     gravedad_map = {
         "leve": "🟡",
@@ -545,6 +560,41 @@ async def send_warning(account: str, request: Request, background_tasks: Backgro
         },
         "status": "queued",
     }
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    body = await request.body()
+    sig_header = request.headers.get("YCloud-Signature", "")
+
+    if not body:
+        return {"status": "ok"}
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return {"status": "ok"}
+
+    event_type = payload.get("type", "unknown")
+    logger.info(f"Webhook: {event_type}")
+
+    if event_type == "whatsapp.inbound_message.received":
+        msg = payload.get("whatsappInboundMessage", {})
+        phone = msg.get("from", "")
+        if phone:
+            account = await lookup_account(phone)
+            await store_response(phone, account)
+            logger.info(f"Webhook response from {phone} (account: {account or 'unknown'})")
+
+    return {"status": "ok"}
+
+
+@app.get("/webhook")
+async def verify_challenge(request: Request):
+    challenge = request.query_params.get("challenge")
+    if challenge:
+        return int(challenge)
+    return {"status": "ok"}
+
 
 @app.get("/health")
 async def health():
