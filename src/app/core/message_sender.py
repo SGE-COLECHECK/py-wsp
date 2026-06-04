@@ -440,7 +440,11 @@ async def process_queue_item(account: str, data: dict):
         await add_contact_task(account, data)
     elif task_type == "message":
         phone = data.get("phone", "")
-        from app.core.ycloud_sender import send_via_ycloud, should_use_ycloud
+        from app.core.ycloud_sender import send_via_ycloud, should_use_ycloud, should_skip_phone, get_phone_state
+        if await should_skip_phone(account, phone):
+            state = await get_phone_state(account, phone)
+            logger.info(f"[{account}] {phone} → SKIP en worker (estado={state})", account=account)
+            return
         if await should_use_ycloud(phone, account):
             sent = await send_via_ycloud(phone, data.get("message", ""), account)
             if sent:

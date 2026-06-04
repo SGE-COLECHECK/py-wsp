@@ -29,6 +29,8 @@ class ConfigManager:
                     if "ycloud_numero" not in data["global"]: data["global"]["ycloud_numero"] = "999888777"
                     if "ycloud_template" not in data["global"]: data["global"]["ycloud_template"] = ""
                     if "phonebook_mode" not in data["global"]: data["global"]["phonebook_mode"] = "all_day"
+                    if "ycloud_min_delay" not in data["global"]: data["global"]["ycloud_min_delay"] = 0.0
+                    if "ycloud_max_delay" not in data["global"]: data["global"]["ycloud_max_delay"] = 0.1
                     return data
             except: pass
         return {
@@ -48,6 +50,8 @@ class ConfigManager:
                 "ycloud_numero": "999888777",
                 "ycloud_template": "🚨🇨🇴🇱🇪✅ \nEstimados padres de familia 👨‍👩‍👧‍👦:\nEste año, *{Colegio}* viene implementando un sistema de control de *INGRESO* y *SALIDA* de estudiantes mediante credenciales escolares.\n\n📌 Guarde el siguiente número como:\n👉 colecheck – *{Numero}*  (escribir a ese whatsapp)\n\n📩 Luego envíe:\n\n🏫 Colegio: *{Colegio}*\n🎓 Grado y sección: *5-A* \n👦 Estudiante: *Yhon Yucra Castro*\n\n🎫 *Verifique que su hijo(a) lleve siempre su credencial, ya que las notificaciones dependen de su uso al ingresar y salir del colegio.*\n\n💬 Para mantener activo el servicio, responda o reaccione 👍 a los mensajes enviados.",
                 "phonebook_mode": "all_day",
+                "ycloud_min_delay": 0.0,
+                "ycloud_max_delay": 0.1,
             },
             "clients": {}
         }
@@ -68,6 +72,8 @@ class ConfigManager:
             "ycloud_api_key": "",
             "ycloud_from": "",
             "ycloud_url": "",
+            "deactivate_after_days": 0,
+            "block_inactive": False,
         }
         cfg = self.settings["clients"].get(name)
         if cfg is None:

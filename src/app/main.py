@@ -2,7 +2,7 @@ import asyncio
 import json
 from fastapi import FastAPI, BackgroundTasks, Request
 from app.core.queue_manager import queue_manager
-from app.core.ycloud_sender import store_response, register_phone, lookup_account
+from app.core.ycloud_sender import store_response, register_phone, lookup_account, smart_send
 from app.utils.logger import logger
 from app.ui.app import run_gui_app
 
@@ -49,9 +49,8 @@ async def enqueue_report(account: str, request: Request, background_tasks: Backg
 
     background_tasks.add_task(register_phone, account, phone)
 
-    payload = {"phone": phone, "message": message, "label": "REPORTE DIARIO"}
-    background_tasks.add_task(queue_manager.enqueue, account, payload)
-    
+    background_tasks.add_task(smart_send, account, phone, message, "REPORTE DIARIO")
+
     return {"status": "enqueued", "account": account, "target": phone}
 
 @app.post("/whatsapp/wapp-web/{account}/addNumber")
@@ -126,15 +125,7 @@ async def send_welcome_message(account: str, request: Request, background_tasks:
         )
         message = header + cuerpo
 
-    payload = {
-        "type": "message", 
-        "phone": telefono,
-        "message": message,
-        "label": "BIENVENIDA",
-        "dry_run": data.get("dry_run", False)
-    }
-    
-    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    background_tasks.add_task(smart_send, account, telefono, message, "BIENVENIDA")
     
     import datetime
     today = datetime.datetime.now().strftime("%d/%m/%Y")
@@ -193,15 +184,7 @@ async def send_registration_link(account: str, request: Request, background_task
     ]
     final_message = "\n".join(message)
 
-    payload = {
-        "type": "message",
-        "phone": phone_clean,
-        "message": final_message,
-        "label": "LINK REGISTRO",
-        "dry_run": data.get("dry_run", False)
-    }
-
-    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    background_tasks.add_task(smart_send, account, phone_clean, final_message, "LINK REGISTRO")
     
     logger.success(f"Link de registro encolado para {phone_clean}", account=account)
 
@@ -256,15 +239,7 @@ async def send_credentials(account: str, request: Request, background_tasks: Bac
     ]
     final_message = "\n".join(message)
 
-    payload = {
-        "type": "message",
-        "phone": phone_clean,
-        "message": final_message,
-        "label": "CREDENCIALES",
-        "dry_run": data.get("dry_run", False)
-    }
-
-    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    background_tasks.add_task(smart_send, account, phone_clean, final_message, "CREDENCIALES")
     
     logger.success(f"Credenciales encoladas para {usuario} ({phone_clean})", account=account)
 
@@ -336,15 +311,7 @@ async def send_weekly_report(account: str, request: Request, background_tasks: B
     
     message += "_Mensaje automático de Cole-Check_"
 
-    payload = {
-        "type": "message",
-        "phone": telefono,
-        "message": message,
-        "label": "REPORTE SEMANAL",
-        "dry_run": data.get("dry_run", False)
-    }
-    
-    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    background_tasks.add_task(smart_send, account, telefono, message, "REPORTE SEMANAL")
     
     return {
         "success": True,
@@ -402,15 +369,7 @@ async def send_agenda(account: str, request: Request, background_tasks: Backgrou
 
     final_message = "\n".join(lines)
 
-    payload = {
-        "type": "message",
-        "phone": phone_clean,
-        "message": final_message,
-        "label": "AGENDA",
-        "dry_run": data.get("dry_run", False)
-    }
-
-    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    background_tasks.add_task(smart_send, account, phone_clean, final_message, "AGENDA")
     logger.success(f"Agenda encolada para {phone_clean}", account=account)
 
     return {
@@ -462,15 +421,7 @@ async def send_comunicado(account: str, request: Request, background_tasks: Back
 
     final_message = "\n".join(lines)
 
-    payload = {
-        "type": "message",
-        "phone": phone_clean,
-        "message": final_message,
-        "label": "COMUNICADO",
-        "dry_run": data.get("dry_run", False)
-    }
-
-    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    background_tasks.add_task(smart_send, account, phone_clean, final_message, "COMUNICADO")
     logger.success(f"Comunicado encolado para {phone_clean}", account=account)
 
     return {
@@ -534,15 +485,7 @@ async def send_warning(account: str, request: Request, background_tasks: Backgro
 
     final_message = "\n".join(lines)
 
-    payload = {
-        "type": "message",
-        "phone": phone_clean,
-        "message": final_message,
-        "label": "LLAMADO ATENCIÓN",
-        "dry_run": data.get("dry_run", False)
-    }
-
-    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    background_tasks.add_task(smart_send, account, phone_clean, final_message, "LLAMADO ATENCIÓN")
     logger.success(f"Llamado de atención encolado para {phone_clean}", account=account)
 
     return {

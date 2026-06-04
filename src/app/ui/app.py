@@ -69,7 +69,8 @@ class WhatsAppUI:
             from app.core.ycloud_sender import (
                 get_responded_count, get_responded_phones,
                 get_account_phone_count, get_phonebook_with_meta, get_phone_status,
-                get_responded_count as get_rc,
+                get_responded_count as get_rc, get_account_states,
+                auto_deactivate_stale,
             )
             self.ycloud_responded_total = await get_responded_count()
             self.ycloud_responded_phones = await get_responded_phones()
@@ -77,6 +78,11 @@ class WhatsAppUI:
             pb_cache = {}
             yc_stats = {}
             for acc in self.sessions:
+                cfg = config_manager.get_client_config(acc)
+                days = cfg.get("deactivate_after_days", 0)
+                if days > 0 and cfg.get("ycloud_enabled", False) and cfg.get("ycloud_mode", "hibrido") == "hibrido":
+                    await auto_deactivate_stale(acc, days)
+                states = await get_account_states(acc)
                 yc_stats[acc] = {
                     "phone_count": await get_account_phone_count(acc),
                     "responded": await get_rc(acc),
@@ -88,6 +94,7 @@ class WhatsAppUI:
                         "phone": entry["phone"],
                         "first_seen": entry["first_seen"],
                         "status": st,
+                        "state": states.get(entry["phone"], "active"),
                     })
             self._pb_cache = pb_cache
             self._yc_stats = yc_stats
@@ -699,7 +706,10 @@ class WhatsAppUI:
             imgui.end_child()
 
         elif self.active_tab == "PHONEBOOK":
-            from app.core.ycloud_sender import get_phonebook_with_meta, get_phone_status, get_account_phone_count
+            from app.core.ycloud_sender import (
+                get_phonebook_with_meta, get_phone_status, get_account_phone_count,
+                deactivate_phone, reactivate_phone, block_phone,
+            )
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_DATABASE}  PHONEBOOK — BASE DE DATOS LOCAL PERSISTENTE")
             imgui.spacing()
             imgui.text_disabled("Almacenada en Redis. Soporta 5000+ teléfonos por cliente.")
@@ -734,7 +744,7 @@ class WhatsAppUI:
                     st = entry["status"]
                     if self._pb_filter_status == "Respondió" and st != "ycloud": continue
                     if self._pb_filter_status == "Sin respuesta" and st == "ycloud": continue
-                    all_entries.append({"phone": entry["phone"], "first_seen": entry["first_seen"], "account": acc, "status": st})
+                    all_entries.append({"phone": entry["phone"], "first_seen": entry["first_seen"], "account": acc, "status": st, "state": entry.get("state", "active")})
             total = len(all_entries)
             pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
             if self._pb_page >= pages: self._pb_page = 0
@@ -751,13 +761,15 @@ class WhatsAppUI:
                 self._pb_page = min(pages-1, self._pb_page + 1)
             imgui.spacing()
             imgui.begin_child("PBTable", (0, 0), True)
-            if imgui.begin_table("PBTable", 6, imgui.TableFlags_.resizable | imgui.TableFlags_.scroll_y | imgui.TableFlags_.borders):
+            if imgui.begin_table("PBTable", 8, imgui.TableFlags_.resizable | imgui.TableFlags_.scroll_y | imgui.TableFlags_.borders):
                 imgui.table_setup_column("#", imgui.TableColumnFlags_.width_fixed, 30)
                 imgui.table_setup_column("Cuenta")
                 imgui.table_setup_column("Teléfono")
                 imgui.table_setup_column("Hora")
                 imgui.table_setup_column("Estado")
                 imgui.table_setup_column("Canal")
+                imgui.table_setup_column("Activo")
+                imgui.table_setup_column("Acción")
                 imgui.table_headers_row()
                 for i, entry in enumerate(page_entries, start + 1):
                     imgui.table_next_row()
@@ -786,6 +798,27 @@ class WhatsAppUI:
                         imgui.text_colored((0.2, 0.6, 1.0, 1.0), "YCloud")
                     else:
                         imgui.text_colored((0.7, 0.7, 0.7, 1.0), "Scraper")
+                    imgui.table_next_column()
+                    state = entry.get("state", "active")
+                    if state == "active":
+                        imgui.text_colored((0.2, 0.9, 0.5, 1.0), "🟢 activo")
+                    elif state == "inactive":
+                        imgui.text_colored((1.0, 0.6, 0.0, 1.0), "🟡 inactivo")
+                    elif state == "blocked":
+                        imgui.text_colored((1.0, 0.2, 0.2, 1.0), "🔴 bloqueado")
+                    imgui.table_next_column()
+                    btn_label = "Activar" if state != "active" else "Desactivar"
+                    if imgui.small_button(f"{btn_label}##{entry['account']}_{entry['phone']}"):
+                        if state == "active":
+                            asyncio.run_coroutine_threadsafe(
+                                deactivate_phone(entry["account"], entry["phone"]),
+                                self.loop,
+                            )
+                        else:
+                            asyncio.run_coroutine_threadsafe(
+                                reactivate_phone(entry["account"], entry["phone"]),
+                                self.loop,
+                            )
                 imgui.end_table()
             imgui.end_child()
 
@@ -848,6 +881,8 @@ class WhatsAppUI:
             self.override_max_delay_val = cfg.get("override_max_delay", None)
             self.override_batch_size_val = cfg.get("override_batch_size", None)
             self.override_batch_pause_val = cfg.get("override_batch_pause", None)
+            self.deactivate_after_days_val = cfg.get("deactivate_after_days", 0)
+            self.block_inactive_val = cfg.get("block_inactive", False)
             self.test_phone_val = getattr(self, 'test_phone_val', "")
             self.show_config_client = None
         if imgui.begin_popup_modal("Client Config", True, imgui.WindowFlags_.always_auto_resize)[0]:
@@ -911,6 +946,18 @@ class WhatsAppUI:
             st = self._yc_stats.get(name, {})
             imgui.text(f"Phonebook: {st.get('phone_count', 0)}  |  Respondieron: {st.get('responded', 0)}  |  Estado: {'✅ Activo' if enabled else '❌ Desactivado'} ({mode})")
             imgui.spacing()
+            imgui.text_colored((1.0, 0.7, 0.2, 1.0), f"{icons_fontawesome.ICON_FA_USER_CLOCK}  AUTO-INACTIVIDAD (solo con YCloud+webhook)")
+            c_bi, self.block_inactive_val = imgui.checkbox("Bloquear envío a inactivos/bloqueados", self.block_inactive_val)
+            if c_bi:
+                cfg["block_inactive"] = self.block_inactive_val
+            c_dd, self.deactivate_after_days_val = imgui.slider_int(
+                "Desactivar tras N días sin respuesta (0=off)", self.deactivate_after_days_val, 0, 30, "%d"
+            )
+            if c_dd:
+                cfg["deactivate_after_days"] = self.deactivate_after_days_val
+            if not enabled:
+                imgui.text_disabled("⚠️ Requiere YCloud activado para que el webhook detecte respuestas")
+            imgui.spacing()
             imgui.text_disabled("Test YCloud — envía un mensaje directo para verificar:")
             _, self.test_phone_val = imgui.input_text("Teléfono##yc_test", self.test_phone_val)
             imgui.same_line()
@@ -941,6 +988,8 @@ class WhatsAppUI:
                     "override_max_delay": self.override_max_delay_val,
                     "override_batch_size": self.override_batch_size_val,
                     "override_batch_pause": self.override_batch_pause_val,
+                    "deactivate_after_days": self.deactivate_after_days_val,
+                    "block_inactive": self.block_inactive_val,
                 })
                 imgui.close_current_popup()
             imgui.end_popup()
