@@ -1,10 +1,44 @@
 import asyncio
 import json
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, BackgroundTasks, Request
 from app.core.queue_manager import queue_manager
-from app.core.ycloud_sender import store_response, register_phone, lookup_account, smart_send
+from app.core.ycloud_sender import store_response, register_phone, lookup_account, smart_send, auto_block_stale
 from app.utils.logger import logger
+from app.utils.config_manager import config_manager
 from app.ui.app import run_gui_app
+
+PERU_TZ = timezone(timedelta(hours=-5))
+
+_review_run_today: set[str] = set()
+
+async def review_scheduler():
+    while True:
+        await asyncio.sleep(60)
+        now = datetime.now(PERU_TZ)
+        today_str = now.strftime("%Y-%m-%d")
+        if now.hour == 20:
+            for account in config_manager.get_client_list():
+                cfg = config_manager.get_client_config(account)
+                if not cfg.get("auto_block_enabled", False):
+                    continue
+                review_day = cfg.get("review_day", 3)
+                if now.weekday() + 1 != review_day:
+                    continue
+                review_key = f"{account}_{today_str}"
+                if review_key in _review_run_today:
+                    continue
+                _review_run_today.add(review_key)
+                try:
+                    blocked = await auto_block_stale(account)
+                    logger.info(f"Revisión semanal: {blocked} bloqueados en {account}")
+                except Exception as e:
+                    logger.error(f"Error en revisión semanal para {account}: {e}")
+                    import traceback
+                    traceback.print_exc()
+        else:
+            if _review_run_today:
+                _review_run_today.clear()
 
 def format_student_name(full_name: str) -> str:
     """Abrevia los dos últimos apellidos a sus iniciales."""
@@ -552,6 +586,7 @@ def run_async_loop():
     asyncio.set_event_loop(loop)
     global playwright_loop
     playwright_loop = loop
+    loop.create_task(review_scheduler())
     loop.run_forever()
 
 # Variable global para el loop de playwright

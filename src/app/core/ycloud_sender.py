@@ -34,12 +34,18 @@ async def store_response(phone: str, account: str = ""):
     r = await queue_manager.get_redis()
     if not r:
         return
-    key = f"response:{normalize_phone(phone)}"
+    nphone = normalize_phone(phone)
+    key = f"response:{nphone}"
     now = time.time()
     await r.set(key, now, ex=86400)
     await r.sadd("ycloud:responded", phone)
     if account:
         await r.sadd(f"ycloud:responded:{account}", phone)
+        await r.hset(f"last_response:{account}", nphone, now)
+        current_state = await r.hget(f"phonebook:state:{account}", nphone)
+        if current_state in ("inactive", "blocked"):
+            await r.hset(f"phonebook:state:{account}", nphone, "active")
+            logger.info(f"[{account}] {nphone} → AUTO-REACTIVADO por webhook", account=account)
 
 
 async def get_responded_count(account: str = "") -> int:
@@ -355,3 +361,70 @@ async def smart_send(account: str, phone: str, message: str, label: str = "MSG")
         "phone": phone, "message": message, "label": label, "type": "message",
     })
     return "queue_fallback"
+
+
+def _get_monday_timestamp() -> float:
+    now = datetime.now(PERU_TZ)
+    monday = now - timedelta(days=now.weekday())
+    monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    return monday.timestamp()
+
+
+async def auto_block_stale(account: str) -> int:
+    """
+    Revisión semanal programada (review_day a las 8 PM).
+    Bloquea teléfonos que NO han respondido desde el lunes de la semana actual.
+    Encola mensaje de advertencia antes de bloquear.
+    Solo aplica si auto_block_enabled=True en la config del cliente.
+    Skip: teléfonos agregados después del lunes, o que ya respondieron esta semana.
+    """
+    cfg = config_manager.get_client_config(account)
+    if not cfg.get("auto_block_enabled", False):
+        return 0
+    r = await queue_manager.get_redis()
+    if not r:
+        return 0
+    monday_ts = _get_monday_timestamp()
+    phones = await r.smembers(f"phonebook:{account}")
+    meta = await r.hgetall(f"phonebook:meta:{account}") or {}
+    last_responses = await r.hgetall(f"last_response:{account}") or {}
+    blocked = 0
+    for phone in phones:
+        nphone = normalize_phone(phone)
+        current_state = await r.hget(f"phonebook:state:{account}", nphone)
+        if current_state in ("inactive", "blocked"):
+            continue
+        first_seen_str = meta.get(nphone)
+        if first_seen_str:
+            try:
+                first_seen = datetime.fromisoformat(first_seen_str).timestamp()
+                if first_seen > monday_ts:
+                    continue
+            except (ValueError, TypeError):
+                pass
+        last_resp_str = last_responses.get(nphone)
+        if last_resp_str:
+            try:
+                last_resp_ts = float(last_resp_str)
+                if last_resp_ts >= monday_ts:
+                    continue
+            except (ValueError, TypeError):
+                pass
+        warning_msg = cfg.get("auto_block_message", "")
+        if warning_msg:
+            await queue_manager.enqueue(account, {
+                "phone": nphone,
+                "message": warning_msg,
+                "label": "AVISO BLOQUEO",
+                "type": "message",
+                "is_warning": True,
+            })
+        await r.hset(f"phonebook:state:{account}", nphone, "blocked")
+        logger.info(f"[{account}] {nphone} → BLOQUEADO (sin respuesta desde lunes)", account=account)
+        blocked += 1
+    if blocked:
+        logger.info(
+            f"[{account}] Auto-bloqueo semanal: {blocked} teléfonos bloqueados",
+            account=account,
+        )
+    return blocked

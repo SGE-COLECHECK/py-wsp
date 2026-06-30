@@ -883,6 +883,9 @@ class WhatsAppUI:
             self.override_batch_pause_val = cfg.get("override_batch_pause", None)
             self.deactivate_after_days_val = cfg.get("deactivate_after_days", 0)
             self.block_inactive_val = cfg.get("block_inactive", False)
+            self.auto_block_enabled_val = cfg.get("auto_block_enabled", False)
+            self.review_day_val = cfg.get("review_day", 3)
+            self.auto_block_message_val = cfg.get("auto_block_message", "")
             self.test_phone_val = getattr(self, 'test_phone_val', "")
             self.show_config_client = None
         if imgui.begin_popup_modal("Client Config", True, imgui.WindowFlags_.always_auto_resize)[0]:
@@ -957,6 +960,23 @@ class WhatsAppUI:
                 cfg["deactivate_after_days"] = self.deactivate_after_days_val
             if not enabled:
                 imgui.text_disabled("⚠️ Requiere YCloud activado para que el webhook detecte respuestas")
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((1.0, 0.3, 0.3, 1.0), f"{icons_fontawesome.ICON_FA_BAN}  REVISIÓN SEMANAL")
+            imgui.text_disabled("Bloquea automáticamente a los que no responden desde el lunes")
+            c_abe, self.auto_block_enabled_val = imgui.checkbox("Activar revisión semanal", self.auto_block_enabled_val)
+            if c_abe:
+                cfg["auto_block_enabled"] = self.auto_block_enabled_val
+            if self.auto_block_enabled_val:
+                day_names = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+                c_rd, self.review_day_val = imgui.combo("Día de revisión (8 PM)##revday", self.review_day_val - 1, day_names)
+                if c_rd:
+                    self.review_day_val = c_rd + 1
+                    cfg["review_day"] = self.review_day_val
+                imgui.text("Mensaje de advertencia:")
+                c_am, self.auto_block_message_val = imgui.input_text_multiline("##autoblockmsg", self.auto_block_message_val, (btn_width - 20, 100))
+                if c_am:
+                    cfg["auto_block_message"] = self.auto_block_message_val
+                imgui.text_disabled("Se envía 1 sola vez al bloquear. Luego el padre debe responder para reactivarse.")
             imgui.spacing()
             imgui.text_disabled("Test YCloud — envía un mensaje directo para verificar:")
             _, self.test_phone_val = imgui.input_text("Teléfono##yc_test", self.test_phone_val)
@@ -990,6 +1010,9 @@ class WhatsAppUI:
                     "override_batch_pause": self.override_batch_pause_val,
                     "deactivate_after_days": self.deactivate_after_days_val,
                     "block_inactive": self.block_inactive_val,
+                    "auto_block_enabled": self.auto_block_enabled_val,
+                    "review_day": self.review_day_val,
+                    "auto_block_message": self.auto_block_message_val,
                 })
                 imgui.close_current_popup()
             imgui.end_popup()
