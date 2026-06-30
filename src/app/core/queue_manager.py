@@ -117,10 +117,75 @@ class QueueManager:
         r = await self.get_redis()
         if not r: return
         await r.rpush(f"queue:{account}", json.dumps(data))
-        # Solo intentar arrancar si el worker no está vivo
         existing = self.workers.get(account)
         if existing is None or existing.done():
             await self.start_worker(account)
+
+    async def save_failed(self, account: str, data: dict, error: str, screenshot: str = ""):
+        r = await self.get_redis()
+        if not r: return
+        entry = {
+            "phone": data.get("phone", ""),
+            "label": data.get("label", "MENSAJE"),
+            "message": data.get("message", ""),
+            "error": error[:300],
+            "screenshot": screenshot,
+            "timestamp": time.time(),
+        }
+        await r.lpush(f"failed:{account}", json.dumps(entry))
+        await r.ltrim(f"failed:{account}", 0, 999)
+
+    async def get_failed(self, account: str, start: int = 0, end: int = 99) -> list:
+        r = await self.get_redis()
+        if not r: return []
+        items = await r.lrange(f"failed:{account}", start, end)
+        result = []
+        for item in items:
+            try:
+                result.append(json.loads(item))
+            except: continue
+        return result
+
+    async def get_failed_count(self, account: str = "") -> int:
+        r = await self.get_redis()
+        if not r: return 0
+        if account:
+            return await r.llen(f"failed:{account}")
+        total = 0
+        for acc in config_manager.get_client_list():
+            total += await r.llen(f"failed:{acc}")
+        return total
+
+    async def retry_failed(self, account: str, index: int) -> bool:
+        r = await self.get_redis()
+        if not r: return False
+        items = await self.get_failed(account, index, index)
+        if not items:
+            return False
+        entry = items[0]
+        await r.lrem(f"failed:{account}", 1, json.dumps(entry))
+        await self.enqueue(account, {
+            "phone": entry["phone"],
+            "message": entry["message"],
+            "label": entry.get("label", "MENSAJE"),
+            "type": "message",
+        })
+        return True
+
+    async def retry_all_failed(self, account: str) -> int:
+        r = await self.get_redis()
+        if not r: return 0
+        items = await self.get_failed(account, 0, 999)
+        count = 0
+        for entry in items:
+            await self.enqueue(account, {
+                "phone": entry["phone"],
+                "message": entry["message"],
+                "label": entry.get("label", "MENSAJE"),
+                "type": "message",
+            })
+        await r.delete(f"failed:{account}")
+        return len(items)
 
     async def _worker(self, account: str):
         queue_name = f"queue:{account}"

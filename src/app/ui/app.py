@@ -351,6 +351,9 @@ class WhatsAppUI:
         if imgui.button(f"{icons_fontawesome.ICON_FA_REPLY_ALL}  RESPONSES"):
             self.active_tab = "RESPONSES"
         imgui.same_line()
+        if imgui.button(f"{icons_fontawesome.ICON_FA_EXCLAMATION_TRIANGLE}  FALLIDOS"):
+            self.active_tab = "FALLIDOS"
+        imgui.same_line()
         if imgui.button(f"{icons_fontawesome.ICON_FA_BOOK}  PHONEBOOK"):
             self.active_tab = "PHONEBOOK"
         imgui.separator()
@@ -493,7 +496,20 @@ class WhatsAppUI:
             c_sd, s_delay = imgui.slider_float("Search Delay (s)", s_delay, 0.5, 5.0, "%.1f")
             if c_sd:
                 config_manager.settings["global"]["search_delay"] = s_delay
-            
+
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.text_colored((1.0, 0.4, 0.4, 1.0), f"{icons_fontawesome.ICON_FA_BELL}  ADMIN ALERTS")
+            admin_phone = config_manager.get_global("admin_phone", "51963828458")
+            admin_alerts = config_manager.get_global("admin_alerts", False)
+            c_ap, admin_phone = imgui.input_text("Teléfono admin (con 51##admin_phone", admin_phone)
+            if c_ap:
+                config_manager.settings["global"]["admin_phone"] = admin_phone
+            c_aa, admin_alerts = imgui.checkbox("Notificar errores a admin por WhatsApp", admin_alerts)
+            if c_aa:
+                config_manager.settings["global"]["admin_alerts"] = admin_alerts
+            if admin_alerts:
+                imgui.text_disabled("Recibirás un mensaje cuando un envío falle definitivamente.")
+
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.text_colored((0.3, 0.7, 1.0, 1.0), f"{icons_fontawesome.ICON_FA_SYNC}  2. QUEUE ORCHESTRATOR")
             if imgui.button(f"{icons_fontawesome.ICON_FA_SYNC_ALT}  SYNC & RESUME ALL REDIS QUEUES", (350, 40)):
@@ -702,6 +718,66 @@ class WhatsAppUI:
                     imgui.table_next_row()
                     imgui.table_next_column(); imgui.text(str(i))
                     imgui.table_next_column(); imgui.text(phone)
+                imgui.end_table()
+            imgui.end_child()
+
+        elif self.active_tab == "FALLIDOS":
+            imgui.text_colored((1.0, 0.3, 0.3, 1.0), f"{icons_fontawesome.ICON_FA_EXCLAMATION_TRIANGLE}  MENSAJES FALLIDOS — Pendientes de reenvío")
+            imgui.text_disabled("Mensajes que no pudieron enviarse por Playwright (scraper). Captura de pantalla + error guardados.")
+            imgui.spacing()
+            total_failed = 0
+            have_errors = False
+            for acc in self.sessions:
+                f_count = asyncio.run_coroutine_threadsafe(
+                    queue_manager.get_failed_count(acc), self.loop
+                ).result()
+                total_failed += f_count
+                if f_count > 0:
+                    have_errors = True
+            imgui.text(f"Total fallidos: {total_failed}")
+            imgui.spacing(); imgui.separator(); imgui.spacing()
+            imgui.begin_child("FailedTable", (0, 0), True)
+            if imgui.begin_table("FailedTable", 6, imgui.TableFlags_.resizable | imgui.TableFlags_.scroll_y | imgui.TableFlags_.borders):
+                imgui.table_setup_column("Cuenta", imgui.TableColumnFlags_.width_fixed, 90)
+                imgui.table_setup_column("Teléfono")
+                imgui.table_setup_column("Label", imgui.TableColumnFlags_.width_fixed, 80)
+                imgui.table_setup_column("Error")
+                imgui.table_setup_column("Hora")
+                imgui.table_setup_column("Acción", imgui.TableColumnFlags_.width_fixed, 110)
+                imgui.table_headers_row()
+                for acc in self.sessions:
+                    failed_items = asyncio.run_coroutine_threadsafe(
+                        queue_manager.get_failed(acc, 0, 199), self.loop
+                    ).result()
+                    if not failed_items:
+                        continue
+                    if imgui.button(f"REINTENTAR TODO##{acc}", (120, 0)):
+                        asyncio.run_coroutine_threadsafe(queue_manager.retry_all_failed(acc), self.loop)
+                        logger.success(f"Reintentando todos los fallidos de {acc}")
+                    imgui.same_line()
+                    imgui.text_disabled(f"{acc}: {len(failed_items)} fallidos")
+                    for idx, entry in enumerate(failed_items):
+                        imgui.table_next_row()
+                        imgui.table_next_column(); imgui.text(acc)
+                        imgui.table_next_column(); imgui.text(entry.get("phone", ""))
+                        imgui.table_next_column(); imgui.text(entry.get("label", ""))
+                        imgui.table_next_column()
+                        err = entry.get("error", "")
+                        imgui.text_colored((1.0, 0.4, 0.4, 1.0), err[:50] + ("..." if len(err) > 50 else ""))
+                        if imgui.is_item_hovered():
+                            imgui.set_tooltip(err)
+                        imgui.table_next_column()
+                        ts = entry.get("timestamp", 0)
+                        if ts:
+                            from datetime import datetime
+                            dt = datetime.fromtimestamp(ts).strftime("%H:%M")
+                            imgui.text(dt)
+                        else:
+                            imgui.text("-")
+                        imgui.table_next_column()
+                        if imgui.small_button(f"Reintentar##{acc}_{idx}"):
+                            asyncio.run_coroutine_threadsafe(queue_manager.retry_failed(acc, idx), self.loop)
+                            logger.success(f"Reintentando fallido {idx} de {acc}")
                 imgui.end_table()
             imgui.end_child()
 

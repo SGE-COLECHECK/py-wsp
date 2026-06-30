@@ -431,6 +431,27 @@ async def send_report_task(account: str, data: dict):
                 await asyncio.sleep(5)
             else:
                 logger.error(f"Fallo definitivo para {phone}", account=account)
+                os.makedirs("data/errors", exist_ok=True)
+                try:
+                    page = await browser_manager.get_page(account)
+                    ss_path = f"data/errors/fail_{account}_{phone}_{int(time.time())}.png"
+                    await page.screenshot(path=ss_path)
+                except:
+                    ss_path = ""
+                from app.core.queue_manager import queue_manager
+                await queue_manager.save_failed(account, data, str(e), ss_path)
+                from app.utils.config_manager import config_manager
+                admin_phone = config_manager.get_global("admin_phone", "")
+                admin_alerts = config_manager.get_global("admin_alerts", False)
+                if admin_phone and admin_alerts:
+                    payload = {
+                        "phone": admin_phone,
+                        "message": f"⚠️ ERROR [{account}]\nNo se pudo enviar a {phone}\n{str(e)[:120]}",
+                        "label": "ERROR",
+                        "type": "message",
+                        "is_warning": True,
+                    }
+                    await queue_manager.enqueue(account, payload)
 
 async def process_queue_item(account: str, data: dict):
     """Enrutador de tareas dependiendo del tipo."""
