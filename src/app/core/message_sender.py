@@ -426,17 +426,21 @@ async def send_report_task(account: str, data: dict):
             return
 
         except Exception as e:
+            from app.core.queue_manager import queue_manager
             logger.error(f"Error en intento {attempt}: {str(e)[:200]}", account=account)
             if attempt == 1:
-                logger.warn(f"Recuperación: recargando página de {account}...", account=account)
+                queue_manager.paused_workers.add(account)
+                logger.warn(f"Recuperación: cola de {account} PAUSADA. Recargando página...", account=account)
                 try:
                     page = await browser_manager.get_page(account)
                     await page.reload()
                     await page.wait_for_selector("#side", timeout=30000)
                     await asyncio.sleep(5)
-                    logger.read(f"Página recargada, reintentando envío...", account=account)
+                    logger.read(f"Página recargada. Reanudando cola de {account}...", account=account)
                 except Exception as reload_err:
-                    logger.error(f"Error recargando página: {reload_err}", account=account)
+                    logger.error(f"Recuperación falló: {reload_err}. Cola de {account} queda PAUSADA.", account=account)
+                else:
+                    queue_manager.paused_workers.discard(account)
             else:
                 logger.error(f"Fallo definitivo para {phone}", account=account)
                 os.makedirs("data/errors", exist_ok=True)
@@ -446,7 +450,6 @@ async def send_report_task(account: str, data: dict):
                     await page.screenshot(path=ss_path)
                 except:
                     ss_path = ""
-                from app.core.queue_manager import queue_manager
                 await queue_manager.save_failed(account, data, str(e), ss_path)
 
 async def process_queue_item(account: str, data: dict):
