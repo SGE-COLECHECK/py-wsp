@@ -16,6 +16,8 @@ class ConfigManager:
                 with open(self.config_path, 'r') as f:
                     data = json.load(f)
                     # Asegurar que las nuevas claves existan
+                    if "admin_phone" not in data["global"]: data["global"]["admin_phone"] = "51963828458"
+                    if "admin_alerts" not in data["global"]: data["global"]["admin_alerts"] = True
                     if "batch_size" not in data["global"]: data["global"]["batch_size"] = 20
                     if "batch_pause" not in data["global"]: data["global"]["batch_pause"] = 60
                     if "search_delay" not in data["global"]: data["global"]["search_delay"] = 2.0
@@ -32,6 +34,8 @@ class ConfigManager:
             except: pass
         return {
             "global": {
+                "admin_phone": "51963828458",
+                "admin_alerts": True,
                 "redis_host": "localhost", 
                 "redis_port": 6379, 
                 "min_delay": 2, 

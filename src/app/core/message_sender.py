@@ -451,6 +451,18 @@ async def send_report_task(account: str, data: dict):
                 except:
                     ss_path = ""
                 await queue_manager.save_failed(account, data, str(e), ss_path)
+                if not data.get("is_alert"):
+                    admin_phone = config_manager.get_global("admin_phone", "")
+                    admin_alerts = config_manager.get_global("admin_alerts", False)
+                    if admin_phone and admin_alerts:
+                        await queue_manager.enqueue(account, {
+                            "phone": admin_phone,
+                            "message": f"⚠️ ERROR [{account}]\nNo se pudo enviar a {phone}\n{str(e)[:120]}",
+                            "label": "ERROR",
+                            "type": "message",
+                            "is_alert": True,
+                        })
+                        logger.info(f"Alerta enviada a {admin_phone}", account=account)
 
 async def process_queue_item(account: str, data: dict):
     """Enrutador de tareas dependiendo del tipo."""
