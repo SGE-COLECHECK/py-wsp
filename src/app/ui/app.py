@@ -69,8 +69,7 @@ class WhatsAppUI:
             from app.core.ycloud_sender import (
                 get_responded_count, get_responded_phones,
                 get_account_phone_count, get_phonebook_with_meta, get_phone_status,
-                get_responded_count as get_rc, get_account_states,
-                auto_deactivate_stale,
+                get_responded_count as get_rc,
             )
             self.ycloud_responded_total = await get_responded_count()
             self.ycloud_responded_phones = await get_responded_phones()
@@ -78,11 +77,6 @@ class WhatsAppUI:
             pb_cache = {}
             yc_stats = {}
             for acc in self.sessions:
-                cfg = config_manager.get_client_config(acc)
-                days = cfg.get("deactivate_after_days", 0)
-                if days > 0 and cfg.get("ycloud_enabled", False) and cfg.get("ycloud_mode", "hibrido") == "hibrido":
-                    await auto_deactivate_stale(acc, days)
-                states = await get_account_states(acc)
                 yc_stats[acc] = {
                     "phone_count": await get_account_phone_count(acc),
                     "responded": await get_rc(acc),
@@ -957,8 +951,6 @@ class WhatsAppUI:
             self.override_max_delay_val = cfg.get("override_max_delay", None)
             self.override_batch_size_val = cfg.get("override_batch_size", None)
             self.override_batch_pause_val = cfg.get("override_batch_pause", None)
-            self.deactivate_after_days_val = cfg.get("deactivate_after_days", 0)
-            self.block_inactive_val = cfg.get("block_inactive", False)
             self.auto_block_enabled_val = cfg.get("auto_block_enabled", False)
             self.review_day_val = cfg.get("review_day", 3)
             self.auto_block_message_val = cfg.get("auto_block_message", "")
@@ -1025,17 +1017,6 @@ class WhatsAppUI:
             st = self._yc_stats.get(name, {})
             imgui.text(f"Phonebook: {st.get('phone_count', 0)}  |  Respondieron: {st.get('responded', 0)}  |  Estado: {'✅ Activo' if enabled else '❌ Desactivado'} ({mode})")
             imgui.spacing()
-            imgui.text_colored((1.0, 0.7, 0.2, 1.0), f"{icons_fontawesome.ICON_FA_USER_CLOCK}  AUTO-INACTIVIDAD (solo con YCloud+webhook)")
-            c_bi, self.block_inactive_val = imgui.checkbox("Bloquear envío a inactivos/bloqueados", self.block_inactive_val)
-            if c_bi:
-                cfg["block_inactive"] = self.block_inactive_val
-            c_dd, self.deactivate_after_days_val = imgui.slider_int(
-                "Desactivar tras N días sin respuesta (0=off)", self.deactivate_after_days_val, 0, 30, "%d"
-            )
-            if c_dd:
-                cfg["deactivate_after_days"] = self.deactivate_after_days_val
-            if not enabled:
-                imgui.text_disabled("⚠️ Requiere YCloud activado para que el webhook detecte respuestas")
             imgui.spacing(); imgui.separator(); imgui.spacing()
             imgui.text_colored((1.0, 0.3, 0.3, 1.0), f"{icons_fontawesome.ICON_FA_BAN}  REVISIÓN SEMANAL")
             imgui.text_disabled("Bloquea automáticamente a los que no responden desde el lunes")
@@ -1084,8 +1065,6 @@ class WhatsAppUI:
                     "override_max_delay": self.override_max_delay_val,
                     "override_batch_size": self.override_batch_size_val,
                     "override_batch_pause": self.override_batch_pause_val,
-                    "deactivate_after_days": self.deactivate_after_days_val,
-                    "block_inactive": self.block_inactive_val,
                     "auto_block_enabled": self.auto_block_enabled_val,
                     "review_day": self.review_day_val,
                     "auto_block_message": self.auto_block_message_val,

@@ -113,6 +113,12 @@ class QueueManager:
         if account in self.paused_workers: self.paused_workers.remove(account)
         else: self.paused_workers.add(account)
 
+    async def pause_worker(self, account: str):
+        self.paused_workers.add(account)
+
+    async def resume_worker(self, account: str):
+        self.paused_workers.discard(account)
+
     async def enqueue(self, account: str, data: dict):
         r = await self.get_redis()
         if not r: return

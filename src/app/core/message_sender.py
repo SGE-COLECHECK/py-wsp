@@ -7,6 +7,7 @@ from app.utils.logger import logger
 from app.core.browser_manager import browser_manager
 from app.utils.config_manager import config_manager
 
+
 async def add_contact_task(account: str, data: dict):
     phone = data.get("phone", "")
     name = data.get("name", "")
@@ -247,7 +248,6 @@ async def add_contact_task(account: str, data: dict):
         raise e
 
 async def send_report_task(account: str, data: dict):
-    start_task_time = time.time()
     phone = data.get("phone", "")
     message = data.get("message", "")
 
@@ -259,178 +259,228 @@ async def send_report_task(account: str, data: dict):
     if not formatted_phone.startswith('51'):
         formatted_phone = '51' + formatted_phone
 
-    try:
-        logger.sending(f"Enviando a {formatted_phone}...", account=account)
-        page = await browser_manager.get_page(account)
+    from app.core.queue_manager import queue_manager
+    from app.core.ycloud_sender import normalize_phone
 
-        if "web.whatsapp.com" not in page.url:
-            await page.goto("https://web.whatsapp.com")
-
-        await page.wait_for_selector("#side", timeout=20000)
-
-        await page.keyboard.press("Escape")
-        await asyncio.sleep(0.1)
-
-        search_selectors = [
-            'div[contenteditable="true"][data-tab="3"]',
-            'div[contenteditable="true"][title*="búsqueda"]',
-            'div[contenteditable="true"][title*="Buscar"]',
-            'div[contenteditable="true"][aria-label*="Buscar"]',
-            '#side div[role="textbox"]',
-            '#side [role="textbox"]',
-            '#side div[contenteditable="true"]',
-            '#side [contenteditable="true"]',
-            'div.lexical-rich-text-input [role="textbox"]',
-            '[aria-label*="Buscar o empezar"]',
-            '[aria-label*="Busca un chat"]',
-            '[aria-label*="Search"]'
-        ]
-
+    async def _do_send() -> bool:
+        start_task_time = time.time()
         try:
-            search_box = await page.wait_for_selector(", ".join(search_selectors), timeout=15000)
-        except Exception as e:
-            os.makedirs("data/errors", exist_ok=True)
-            path = f"data/errors/search_fail_{account}_{int(time.time())}.png"
-            await page.screenshot(path=path)
-            logger.error(f"No se encontró el buscador. Captura: {path}")
-            raise e
+            logger.sending(f"Enviando a {formatted_phone}...", account=account)
+            page = await browser_manager.get_page(account)
 
-        await search_box.click()
-        await asyncio.sleep(0.05)
-        await page.keyboard.press("Control+A")
-        await page.keyboard.press("Backspace")
-        await asyncio.sleep(0.05)
+            if "web.whatsapp.com" not in page.url:
+                await page.goto("https://web.whatsapp.com")
 
-        search_start = time.time()
-        await search_box.type(formatted_phone, delay=25)
-        search_delay = config_manager.get_global("search_delay", 2.0)
-        await asyncio.sleep(search_delay)
-        await page.keyboard.press("Enter")
+            await page.wait_for_selector("#side", timeout=20000)
 
-        await asyncio.sleep(1.5)
-        t_search = time.time() - search_start
-
-        # Detectar cualquier dialogo/modal que haya aparecido
-        dialog_info = await page.evaluate('''() => {
-            const dialogs = document.querySelectorAll('[role="dialog"]');
-            if (dialogs.length > 0) {
-                return { type: "dialog", text: dialogs[0].innerText.substring(0, 300) };
-            }
-            const body = document.body.innerText;
-            const keywords = [
-                'no se encontró ningún chat', 'no se encontraron',
-                'no está registrado en WhatsApp', 'invitar a WhatsApp',
-                'invite to WhatsApp'
-            ];
-            for (const kw of keywords) {
-                if (body.toLowerCase().includes(kw)) {
-                    return { type: "body", text: kw };
-                }
-            }
-            return null;
-        }''')
-
-        if dialog_info:
-            reason = dialog_info["text"][:120]
-            logger.warn(f"Numero {formatted_phone} no disponible: {reason}", account=account)
             await page.keyboard.press("Escape")
-            return
+            await asyncio.sleep(0.1)
 
-        msg_selectors = [
-            'div[contenteditable="true"][data-tab="10"]',
-            'footer div[contenteditable="true"]',
-            'footer [role="textbox"]',
-            '#main div[contenteditable="true"]',
-            '#main [role="textbox"]'
-        ]
+            search_selectors = [
+                'div[contenteditable="true"][data-tab="3"]',
+                'div[contenteditable="true"][title*="búsqueda"]',
+                'div[contenteditable="true"][title*="Buscar"]',
+                'div[contenteditable="true"][aria-label*="Buscar"]',
+                '#side div[role="textbox"]',
+                '#side [role="textbox"]',
+                '#side div[contenteditable="true"]',
+                '#side [contenteditable="true"]',
+                'div.lexical-rich-text-input [role="textbox"]',
+                '[aria-label*="Buscar o empezar"]',
+                '[aria-label*="Busca un chat"]',
+                '[aria-label*="Search"]'
+            ]
 
-        msg_box = None
-        try:
-            msg_box = await page.wait_for_selector(", ".join(msg_selectors), timeout=5000)
-        except:
-            logger.warn("Probando selectores alternativos...", account=account)
             try:
-                fallback_selectors = [
-                    'footer div.lexical-rich-text-input [contenteditable="true"]',
-                    '[aria-label*="escribe un mensaje"]',
-                    '[aria-label*="Type a message"]',
-                    '[aria-label*="mensaje"]'
-                ]
-                msg_box = await page.wait_for_selector(", ".join(fallback_selectors), timeout=5000)
-            except:
-                raise Exception("No se encontró el cuadro de mensaje.")
+                search_box = await page.wait_for_selector(", ".join(search_selectors), timeout=15000)
+            except Exception as e:
+                os.makedirs("data/errors", exist_ok=True)
+                path = f"data/errors/search_fail_{account}_{int(time.time())}.png"
+                await page.screenshot(path=path)
+                logger.error(f"No se encontró el buscador. Captura: {path}")
+                raise e
 
-        await msg_box.click()
-        await asyncio.sleep(0.05)
+            await search_box.click()
+            await asyncio.sleep(0.05)
+            await page.keyboard.press("Control+A")
+            await page.keyboard.press("Backspace")
+            await asyncio.sleep(0.05)
 
-        await page.keyboard.press("Control+A")
-        await asyncio.sleep(0.05)
-        await page.keyboard.press("Backspace")
-        await asyncio.sleep(0.05)
-
-        typing_start = time.time()
-
-        send_mode = config_manager.get_global("send_mode", "typing")
-
-        if send_mode == "paste":
-            await page.evaluate('''(text) => {
-                const dt = new DataTransfer();
-                dt.setData("text/plain", text);
-                const pasteEvent = new ClipboardEvent("paste", {
-                    clipboardData: dt,
-                    bubbles: true,
-                    cancelable: true
-                });
-                document.activeElement.dispatchEvent(pasteEvent);
-            }''', message)
-            await asyncio.sleep(0.1)
-        else:
-            typing_delay = config_manager.get_global("typing_delay", 10)
-            lines = message.split('\n')
-            for i, line in enumerate(lines):
-                if len(line) > 0:
-                    await page.keyboard.type(line, delay=typing_delay)
-                if i < len(lines) - 1:
-                    await page.keyboard.press("Shift+Enter")
-
-        t_typing = time.time() - typing_start
-        t_prep = search_start - start_task_time
-        label = data.get("label", "MENSAJE")
-        total_prep = time.time() - start_task_time
-
-        logger.info(f"{label} | Prep: {t_prep:.2f}s | Busq: {t_search:.2f}s | Escr: {t_typing:.2f}s | Total: {total_prep:.2f}s", account=account)
-
-        pre_min = config_manager.get_global("pre_send_min", 1.0)
-        pre_max = config_manager.get_global("pre_send_max", 3.0)
-        pre_delay = random.uniform(pre_min, pre_max)
-
-        if data.get("dry_run"):
-            logger.warn(f"DRY-RUN: OK (delay {pre_delay:.1f}s omitido)", account=account)
-        else:
-            await asyncio.sleep(pre_delay)
+            search_start = time.time()
+            await search_box.type(formatted_phone, delay=25)
+            search_delay = config_manager.get_global("search_delay", 2.0)
+            await asyncio.sleep(search_delay)
             await page.keyboard.press("Enter")
-            await asyncio.sleep(0.1)
-            logger.read(f"Enviado a {formatted_phone} (delay: {pre_delay:.1f}s)", account=account)
-            logger.increment_sent(account)
 
-        await page.keyboard.press("Escape")
+            await asyncio.sleep(1.5)
+            t_search = time.time() - search_start
 
-        total_time = time.time() - start_task_time
-        logger.info(f"Tarea completada exitosamente en {total_time:.2f}s", account=account)
-        return
+            dialog_info = await page.evaluate('''() => {
+                const dialogs = document.querySelectorAll('[role="dialog"]');
+                if (dialogs.length > 0) {
+                    return { type: "dialog", text: dialogs[0].innerText.substring(0, 300) };
+                }
+                const body = document.body.innerText;
+                const keywords = [
+                    'no se encontró ningún chat', 'no se encontraron',
+                    'no está registrado en WhatsApp', 'invitar a WhatsApp',
+                    'invite to WhatsApp'
+                ];
+                for (const kw of keywords) {
+                    if (body.toLowerCase().includes(kw)) {
+                        return { type: "body", text: kw };
+                    }
+                }
+                return null;
+            }''')
 
+            if dialog_info:
+                reason = dialog_info["text"][:120]
+                logger.warn(f"Numero {formatted_phone} no disponible: {reason}", account=account)
+                await page.keyboard.press("Escape")
+                return True
+
+            msg_selectors = [
+                'div[contenteditable="true"][data-tab="10"]',
+                'footer div[contenteditable="true"]',
+                'footer [role="textbox"]',
+                '#main div[contenteditable="true"]',
+                '#main [role="textbox"]'
+            ]
+
+            msg_box = None
+            try:
+                msg_box = await page.wait_for_selector(", ".join(msg_selectors), timeout=5000)
+            except:
+                logger.warn("Probando selectores alternativos...", account=account)
+                try:
+                    fallback_selectors = [
+                        'footer div.lexical-rich-text-input [contenteditable="true"]',
+                        '[aria-label*="escribe un mensaje"]',
+                        '[aria-label*="Type a message"]',
+                        '[aria-label*="mensaje"]'
+                    ]
+                    msg_box = await page.wait_for_selector(", ".join(fallback_selectors), timeout=5000)
+                except:
+                    raise Exception("No se encontró el cuadro de mensaje.")
+
+            await msg_box.click()
+            await asyncio.sleep(0.05)
+
+            await page.keyboard.press("Control+A")
+            await asyncio.sleep(0.05)
+            await page.keyboard.press("Backspace")
+            await asyncio.sleep(0.05)
+
+            typing_start = time.time()
+
+            send_mode = config_manager.get_global("send_mode", "typing")
+
+            if send_mode == "paste":
+                await page.evaluate('''(text) => {
+                    const dt = new DataTransfer();
+                    dt.setData("text/plain", text);
+                    const pasteEvent = new ClipboardEvent("paste", {
+                        clipboardData: dt,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    document.activeElement.dispatchEvent(pasteEvent);
+                }''', message)
+                await asyncio.sleep(0.1)
+            else:
+                typing_delay = config_manager.get_global("typing_delay", 10)
+                lines = message.split('\n')
+                for i, line in enumerate(lines):
+                    if len(line) > 0:
+                        await page.keyboard.type(line, delay=typing_delay)
+                    if i < len(lines) - 1:
+                        await page.keyboard.press("Shift+Enter")
+
+            t_typing = time.time() - typing_start
+            t_prep = search_start - start_task_time
+            label = data.get("label", "MENSAJE")
+            total_prep = time.time() - start_task_time
+
+            logger.info(f"{label} | Prep: {t_prep:.2f}s | Busq: {t_search:.2f}s | Escr: {t_typing:.2f}s | Total: {total_prep:.2f}s", account=account)
+
+            pre_min = config_manager.get_global("pre_send_min", 1.0)
+            pre_max = config_manager.get_global("pre_send_max", 3.0)
+            pre_delay = random.uniform(pre_min, pre_max)
+
+            if data.get("dry_run"):
+                logger.warn(f"DRY-RUN: OK (delay {pre_delay:.1f}s omitido)", account=account)
+            else:
+                await asyncio.sleep(pre_delay)
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(0.1)
+                logger.read(f"Enviado a {formatted_phone} (delay: {pre_delay:.1f}s)", account=account)
+                logger.increment_sent(account)
+
+            await page.keyboard.press("Escape")
+
+            total_time = time.time() - start_task_time
+            logger.info(f"Tarea completada exitosamente en {total_time:.2f}s", account=account)
+            return True
+        except Exception as e:
+            logger.warn(f"Error en envío: {str(e)[:200]}", account=account)
+            raise
+
+    is_warning = data.get("is_warning", False)
+
+    try:
+        ok = await _do_send()
+        if ok and not is_warning:
+            r = await queue_manager.get_redis()
+            if r:
+                nphone = normalize_phone(formatted_phone)
+                new_streak = await r.incr(f"send_streak:{nphone}")
+                logger.info(f"send_streak:{nphone} → {new_streak}", account=account)
     except Exception as e:
-        logger.error(f"Error: {str(e)[:200]}", account=account)
-        logger.error(f"Fallo definitivo para {phone}", account=account)
-        os.makedirs("data/errors", exist_ok=True)
+        logger.warn(f"Intento 1 falló para {phone}, recuperando...", account=account)
+        await queue_manager.pause_worker(account)
+        logger.info(f"Cola de {account} PAUSADA para recovery", account=account)
         try:
             page = await browser_manager.get_page(account)
-            ss_path = f"data/errors/fail_{account}_{phone}_{int(time.time())}.png"
-            await page.screenshot(path=ss_path)
-        except:
+            await page.reload()
+            logger.info(f"Página recargada, esperando #side...", account=account)
+            await page.wait_for_selector("#side", timeout=35000)
+            await asyncio.sleep(5)
+        except Exception as reload_err:
+            logger.error(f"Error en recarga: {reload_err}", account=account)
+        await queue_manager.resume_worker(account)
+        logger.info(f"Cola de {account} REANUDADA, intento 2...", account=account)
+        try:
+            ok2 = await _do_send()
+            if ok2 and not is_warning:
+                r = await queue_manager.get_redis()
+                if r:
+                    nphone = normalize_phone(formatted_phone)
+                    new_streak = await r.incr(f"send_streak:{nphone}")
+                    logger.info(f"send_streak:{nphone} → {new_streak}", account=account)
+        except Exception as e2:
+            logger.error(f"Intento 2 falló para {phone}: {e2}", account=account)
+            os.makedirs("data/errors", exist_ok=True)
             ss_path = ""
-        from app.core.queue_manager import queue_manager
-        await queue_manager.save_failed(account, data, str(e), ss_path)
+            try:
+                page = await browser_manager.get_page(account)
+                ss_path = f"data/errors/fail_{account}_{phone}_{int(time.time())}.png"
+                await page.screenshot(path=ss_path)
+            except:
+                pass
+            await queue_manager.save_failed(account, data, str(e2), ss_path)
+            logger.error(f"Fallo definitivo para {phone}", account=account)
+            cfg = config_manager.get_client_config(account)
+            if cfg.get("admin_alerts", False):
+                admin_phone = config_manager.get_global("admin_phone", "51963828458")
+                admin_msg = f"⚠️ ERROR [{account}]\nNo se pudo enviar a {phone}\n{e2}"
+                await queue_manager.enqueue(account, {
+                    "phone": admin_phone,
+                    "message": admin_msg,
+                    "label": "ADMIN ALERT",
+                    "type": "message",
+                    "is_alert": True,
+                })
 
 async def process_queue_item(account: str, data: dict):
     """Enrutador de tareas dependiendo del tipo."""
@@ -440,12 +490,7 @@ async def process_queue_item(account: str, data: dict):
         await add_contact_task(account, data)
     elif task_type == "message":
         phone = data.get("phone", "")
-        is_warning = data.get("is_warning", False)
-        from app.core.ycloud_sender import send_via_ycloud, should_use_ycloud, should_skip_phone, get_phone_state
-        if not is_warning and await should_skip_phone(account, phone):
-            state = await get_phone_state(account, phone)
-            logger.info(f"[{account}] {phone} → SKIP en worker (estado={state})", account=account)
-            return
+        from app.core.ycloud_sender import send_via_ycloud, should_use_ycloud
         if await should_use_ycloud(phone, account):
             sent = await send_via_ycloud(phone, data.get("message", ""), account)
             if sent:

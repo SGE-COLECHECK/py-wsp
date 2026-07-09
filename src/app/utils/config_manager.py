@@ -76,8 +76,7 @@ class ConfigManager:
             "ycloud_api_key": "",
             "ycloud_from": "",
             "ycloud_url": "",
-            "deactivate_after_days": 0,
-            "block_inactive": False,
+
             "auto_block_enabled": False,
             "review_day": 3,
             "auto_block_message": "⚠️ AVISO IMPORTANTE\n\nSu cuenta ha sido suspendida temporalmente por no responder los mensajes enviados por este chat.\n\nEsta medida ayuda a evitar restricciones de WhatsApp y mantener el servicio de notificaciones para todos los padres de familia.\n\n📱 Recuerde que también puede consultar todas las asistencias, tardanzas y demás información desde la aplicación de ColeCheck. Las notificaciones por WhatsApp son un complemento del servicio.\n\n✅ Para reactivar las notificaciones por WhatsApp, solo responda cualquier mensaje de este chat.",

@@ -22,18 +22,15 @@ async def review_scheduler():
                 cfg = config_manager.get_client_config(account)
                 if not cfg.get("auto_block_enabled", False):
                     continue
-                review_day = cfg.get("review_day", 3)
-                if now.weekday() + 1 != review_day:
-                    continue
                 review_key = f"{account}_{today_str}"
                 if review_key in _review_run_today:
                     continue
                 _review_run_today.add(review_key)
                 try:
-                    blocked = await auto_block_stale(account)
-                    logger.info(f"Revisión semanal: {blocked} bloqueados en {account}")
+                    total = await auto_block_stale(account)
+                    logger.info(f"Revisión diaria: {total} procesados en {account}")
                 except Exception as e:
-                    logger.error(f"Error en revisión semanal para {account}: {e}")
+                    logger.error(f"Error en revisión para {account}: {e}")
                     import traceback
                     traceback.print_exc()
         else:
