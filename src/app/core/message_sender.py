@@ -426,11 +426,28 @@ async def send_report_task(account: str, data: dict):
             return
 
         except Exception as e:
-            logger.error(f"Error en intento {attempt}: {str(e)}", account=account)
+            logger.error(f"Error en intento {attempt}: {str(e)[:200]}", account=account)
             if attempt == 1:
-                await asyncio.sleep(5)
+                logger.warn(f"Recuperación: recargando página de {account}...", account=account)
+                try:
+                    page = await browser_manager.get_page(account)
+                    await page.reload()
+                    await page.wait_for_selector("#side", timeout=30000)
+                    await asyncio.sleep(5)
+                    logger.read(f"Página recargada, reintentando envío...", account=account)
+                except Exception as reload_err:
+                    logger.error(f"Error recargando página: {reload_err}", account=account)
             else:
                 logger.error(f"Fallo definitivo para {phone}", account=account)
+                os.makedirs("data/errors", exist_ok=True)
+                try:
+                    page = await browser_manager.get_page(account)
+                    ss_path = f"data/errors/fail_{account}_{phone}_{int(time.time())}.png"
+                    await page.screenshot(path=ss_path)
+                except:
+                    ss_path = ""
+                from app.core.queue_manager import queue_manager
+                await queue_manager.save_failed(account, data, str(e), ss_path)
 
 async def process_queue_item(account: str, data: dict):
     """Enrutador de tareas dependiendo del tipo."""

@@ -1,6 +1,7 @@
 import json
 import asyncio
 import random
+import time
 import redis.asyncio as redis
 from app.utils.logger import logger
 from app.core.message_sender import process_queue_item
@@ -87,6 +88,20 @@ class QueueManager:
         if not r: return
         await r.rpush(f"queue:{account}", json.dumps(data))
         await self.start_worker(account)
+
+    async def save_failed(self, account: str, data: dict, error: str, screenshot: str = ""):
+        r = await self.get_redis()
+        if not r: return
+        entry = {
+            "phone": data.get("phone", ""),
+            "label": data.get("label", "MENSAJE"),
+            "message": data.get("message", ""),
+            "error": error[:300],
+            "screenshot": screenshot,
+            "timestamp": time.time(),
+        }
+        await r.lpush(f"failed:{account}", json.dumps(entry))
+        await r.ltrim(f"failed:{account}", 0, 999)
 
     async def _worker(self, account: str):
         queue_name = f"queue:{account}"
