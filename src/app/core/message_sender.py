@@ -338,7 +338,7 @@ async def send_report_task(account: str, data: dict):
                 reason = dialog_info["text"][:120]
                 logger.warn(f"Numero {formatted_phone} no disponible: {reason}", account=account)
                 await page.keyboard.press("Escape")
-                return True
+                return "not_found"
 
             msg_selectors = [
                 'div[contenteditable="true"][data-tab="10"]',
@@ -421,21 +421,49 @@ async def send_report_task(account: str, data: dict):
 
             total_time = time.time() - start_task_time
             logger.info(f"Tarea completada exitosamente en {total_time:.2f}s", account=account)
-            return True
+            return "sent"
         except Exception as e:
             logger.warn(f"Error en envío: {str(e)[:200]}", account=account)
             raise
 
     is_warning = data.get("is_warning", False)
 
+    async def _incr_streak():
+        if is_warning:
+            return
+        r = await queue_manager.get_redis()
+        if r:
+            nphone = normalize_phone(formatted_phone)
+            new_streak = await r.incr(f"send_streak:{nphone}")
+            logger.info(f"send_streak:{nphone} → {new_streak}", account=account)
+            cfg = config_manager.get_client_config(account)
+            if new_streak >= 3:
+                await r.hset(f"phonebook:state:{account}", nphone, "blocked")
+                logger.info(f"[{account}] {nphone} → BLOQUEADO (send_streak={new_streak})", account=account)
+            elif new_streak == 2:
+                warning_msg = cfg.get("auto_block_message", "")
+                if warning_msg:
+                    await queue_manager.enqueue(account, {
+                        "phone": nphone,
+                        "message": warning_msg,
+                        "label": "AVISO BLOQUEO",
+                        "type": "message",
+                        "is_warning": True,
+                    })
+                    logger.info(f"[{account}] {nphone} → WARNING encolado (send_streak={new_streak})", account=account)
+
     try:
-        ok = await _do_send()
-        if ok and not is_warning:
-            r = await queue_manager.get_redis()
-            if r:
-                nphone = normalize_phone(formatted_phone)
-                new_streak = await r.incr(f"send_streak:{nphone}")
-                logger.info(f"send_streak:{nphone} → {new_streak}", account=account)
+        result = await _do_send()
+        if result == "sent":
+            await _incr_streak()
+        elif result == "not_found" and config_manager.get_global("admin_alerts", False):
+            admin_phone = config_manager.get_global("admin_phone", "51963828458")
+            from app.core.ycloud_sender import send_via_ycloud
+            asyncio.ensure_future(send_via_ycloud(
+                admin_phone,
+                f"⚠️ NÚMERO NO ENCONTRADO [{account}]\n{phone} no está en WhatsApp",
+                account,
+            ))
     except Exception as e:
         logger.warn(f"Intento 1 falló para {phone}, recuperando...", account=account)
         await queue_manager.pause_worker(account)
@@ -451,13 +479,11 @@ async def send_report_task(account: str, data: dict):
         await queue_manager.resume_worker(account)
         logger.info(f"Cola de {account} REANUDADA, intento 2...", account=account)
         try:
-            ok2 = await _do_send()
-            if ok2 and not is_warning:
-                r = await queue_manager.get_redis()
-                if r:
-                    nphone = normalize_phone(formatted_phone)
-                    new_streak = await r.incr(f"send_streak:{nphone}")
-                    logger.info(f"send_streak:{nphone} → {new_streak}", account=account)
+            result2 = await _do_send()
+            if result2 == "sent":
+                await _incr_streak()
+            elif result2 == "not_found":
+                await queue_manager.save_failed(account, data, "Número no encontrado en WhatsApp", "")
         except Exception as e2:
             logger.error(f"Intento 2 falló para {phone}: {e2}", account=account)
             os.makedirs("data/errors", exist_ok=True)
@@ -470,17 +496,22 @@ async def send_report_task(account: str, data: dict):
                 pass
             await queue_manager.save_failed(account, data, str(e2), ss_path)
             logger.error(f"Fallo definitivo para {phone}", account=account)
-            cfg = config_manager.get_client_config(account)
-            if cfg.get("admin_alerts", False):
+            if config_manager.get_global("admin_alerts", False):
                 admin_phone = config_manager.get_global("admin_phone", "51963828458")
                 admin_msg = f"⚠️ ERROR [{account}]\nNo se pudo enviar a {phone}\n{e2}"
-                await queue_manager.enqueue(account, {
-                    "phone": admin_phone,
-                    "message": admin_msg,
-                    "label": "ADMIN ALERT",
-                    "type": "message",
-                    "is_alert": True,
-                })
+                from app.core.ycloud_sender import send_via_ycloud
+                sent = await send_via_ycloud(admin_phone, admin_msg, account)
+                if sent:
+                    logger.success(f"Admin alert enviada a {admin_phone}", account=account)
+                else:
+                    logger.error(f"Admin alert falló (YCloud), encolando por scraper", account=account)
+                    await queue_manager.enqueue(account, {
+                        "phone": admin_phone,
+                        "message": admin_msg,
+                        "label": "ADMIN ALERT",
+                        "type": "message",
+                        "is_alert": True,
+                    })
 
 async def process_queue_item(account: str, data: dict):
     """Enrutador de tareas dependiendo del tipo."""
