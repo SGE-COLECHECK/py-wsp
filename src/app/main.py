@@ -574,6 +574,28 @@ async def verify_challenge(request: Request):
 async def health():
     return {"status": "ok", "redis": queue_manager.is_connected}
 
+
+@app.get("/api/phonebook/{account}")
+async def api_phonebook(account: str):
+    from app.core.ycloud_sender import get_account_phones
+    phones = await get_account_phones(account)
+    return {"account": account, "total": len(phones), "phones": sorted(phones)}
+
+
+@app.get("/api/phonebook/{account}/detail")
+async def api_phonebook_detail(account: str):
+    from app.core.ycloud_sender import get_phonebook_with_meta, get_account_states
+    phones = await get_phonebook_with_meta(account)
+    states = await get_account_states(account)
+    result = []
+    for p in phones:
+        result.append({
+            "phone": p["phone"],
+            "first_seen": p["first_seen"],
+            "state": states.get(p["phone"], "active"),
+        })
+    return {"account": account, "total": len(result), "phones": result}
+
 def run_server():
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=3000)

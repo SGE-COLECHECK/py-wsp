@@ -4,10 +4,13 @@ import logging
 import os
 import sys
 import json
+import asyncio
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException
 import uvicorn
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,7 +40,7 @@ def verify_signature(payload: bytes, signature_header: str, secret: str) -> bool
     return hmac.compare_digest(expected, sig)
 
 
-def handle_whatsapp_inbound_message(payload: dict):
+async def handle_whatsapp_inbound_message(payload: dict):
     msg = payload.get("whatsappInboundMessage", {})
     from_number = msg.get("from", "unknown")
     to_number = msg.get("to", "unknown")
@@ -71,6 +74,19 @@ def handle_whatsapp_inbound_message(payload: dict):
         log.info(f"  Group ID: {group_id}")
     if from_number == "+51963828458":
         log.info("*** MENSAJE DE YRSAN ***")
+
+    # store_response para resetear streak + activar YCloud 24h
+    try:
+        from app.core.ycloud_sender import store_response, lookup_account
+        phone = from_number.lstrip("+")
+        account = await lookup_account(phone)
+        if account:
+            await store_response(phone, account)
+            log.info(f"  → store_response OK (account: {account})")
+        else:
+            log.info(f"  → phone {phone} no está en ningún phonebook")
+    except Exception as e:
+        log.error(f"  → store_response falló: {e}")
 
 def handle_whatsapp_message_updated(payload: dict):
     msg = payload.get("whatsappMessage", {})
@@ -193,7 +209,10 @@ async def webhook(request: Request):
 
     handler = EVENT_HANDLERS.get(event_type)
     if handler:
-        handler(payload)
+        if asyncio.iscoroutinefunction(handler):
+            await handler(payload)
+        else:
+            handler(payload)
     else:
         log.info(f"Unhandled event type: {event_type}")
         log.info(f"Full payload: {json.dumps(payload, indent=2, default=str)}")
