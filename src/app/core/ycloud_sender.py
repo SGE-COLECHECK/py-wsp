@@ -17,11 +17,12 @@ def normalize_phone(phone: str) -> str:
     return cleaned
 
 
-async def get_last_response(phone: str) -> float | None:
+async def get_last_response(phone: str, account: str = "") -> float | None:
     r = await queue_manager.get_redis()
     if not r:
         return None
-    val = await r.get(f"response:{normalize_phone(phone)}")
+    key = f"response:{account}:{normalize_phone(phone)}" if account else f"response:{normalize_phone(phone)}"
+    val = await r.get(key)
     if val:
         try:
             return float(val)
@@ -35,7 +36,7 @@ async def store_response(phone: str, account: str = ""):
     if not r:
         return
     nphone = normalize_phone(phone)
-    key = f"response:{nphone}"
+    key = f"response:{account}:{nphone}" if account else f"response:{nphone}"
     now = time.time()
     await r.set(key, now, ex=86400)
     await r.sadd("ycloud:responded", phone)
@@ -114,11 +115,12 @@ async def get_phonebook_with_meta(account: str) -> list:
     return result
 
 
-async def get_phone_status(phone: str) -> str:
+async def get_phone_status(phone: str, account: str = "") -> str:
     r = await queue_manager.get_redis()
     if not r:
         return "scraper"
-    exists = await r.get(f"response:{normalize_phone(phone)}")
+    key = f"response:{account}:{normalize_phone(phone)}" if account else f"response:{normalize_phone(phone)}"
+    exists = await r.get(key)
     return "ycloud" if exists else "scraper"
 
 
@@ -200,7 +202,7 @@ async def should_use_ycloud(phone: str, account: str) -> bool:
     if mode == "solo_ycloud":
         logger.debug(f"YCloud mode=solo_ycloud for {account}, using YCloud")
         return True
-    last = await get_last_response(phone)
+    last = await get_last_response(phone, account)
     has_resp = last is not None
     logger.info(f"YCloud híbrido [{account}] {nphone}: respondió={has_resp}", account=account)
     return has_resp

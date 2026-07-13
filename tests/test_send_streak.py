@@ -14,7 +14,7 @@ async def test_store_response_resets_send_streak():
         await store_response("519111222", "test-account")
 
         nphone = "519111222"
-        mock_redis.set.assert_called_with(f"response:{nphone}", pytest.approx(1234567890, abs=1e9), ex=86400)
+        mock_redis.set.assert_called_with(f"response:test-account:{nphone}", pytest.approx(1234567890, abs=1e9), ex=86400)
         mock_redis.delete.assert_called_with(f"send_streak:{nphone}")
 
 

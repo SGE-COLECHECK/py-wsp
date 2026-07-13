@@ -122,7 +122,7 @@ async def test():
     await store_response(PHONES[0], ACCOUNT)
     new_streak = await r_conn.get(streak_key)
     new_state = await r_conn.hget(f"phonebook:state:{ACCOUNT}", nphone)
-    has_resp = await r_conn.exists(f"response:{nphone}")
+    has_resp = await r_conn.exists(f"response:{ACCOUNT}:{nphone}")
     r("Borra send_streak", new_streak is None, f"antes={old_streak}, despues={new_streak}")
     r("Reactiva (active)", new_state == "active", f"antes={old_state}, despues={new_state}")
     r("Crea response:key", has_resp == 1)

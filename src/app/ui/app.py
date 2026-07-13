@@ -83,7 +83,7 @@ class WhatsAppUI:
                 }
                 phones = await get_phonebook_with_meta(acc)
                 for entry in phones:
-                    st = await get_phone_status(entry["phone"])
+                    st = await get_phone_status(entry["phone"], acc)
                     pb_cache.setdefault(acc, []).append({
                         "phone": entry["phone"],
                         "first_seen": entry["first_seen"],
