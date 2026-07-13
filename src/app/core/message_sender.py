@@ -259,6 +259,20 @@ async def send_report_task(account: str, data: dict):
     if not formatted_phone.startswith('51'):
         formatted_phone = '51' + formatted_phone
 
+    async def _dismiss_dialogs():
+        """Cierra cualquier dialog modal que esté interceptando clics."""
+        try:
+            for _ in range(5):
+                dialog = page.locator('[role="dialog"]')
+                if await dialog.count() > 0:
+                    logger.debug("Dialog detectado, cerrando con Escape...", account=account)
+                    await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.5)
+                else:
+                    break
+        except:
+            pass
+
     for attempt in range(1, 3):
         try:
             logger.sending(f"Enviando a {formatted_phone}...", account=account)
@@ -269,9 +283,7 @@ async def send_report_task(account: str, data: dict):
 
             await page.wait_for_selector("#side", timeout=20000)
 
-            # Limpiar cualquier popup o modal que haya quedado abierto
-            await page.keyboard.press("Escape")
-            await asyncio.sleep(0.1)
+            await _dismiss_dialogs()
 
             # --- PASO 1: Buscar el cuadro de búsqueda ---
             search_selectors = [
@@ -298,8 +310,8 @@ async def send_report_task(account: str, data: dict):
                 logger.error(f"No se encontró el buscador. Captura: {path}")
                 raise e
             
-            # Clic + limpiar lo que haya escrito antes
-            await search_box.click()
+            await _dismiss_dialogs()
+            await search_box.click(force=True)
             await asyncio.sleep(0.05)
             await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
@@ -359,7 +371,8 @@ async def send_report_task(account: str, data: dict):
                 except:
                     raise Exception("No se encontró el cuadro de mensaje.")
 
-            await msg_box.click()
+            await _dismiss_dialogs()
+            await msg_box.click(force=True)
             await asyncio.sleep(0.05)
             
             # --- PASO 4.5 ---
@@ -413,6 +426,7 @@ async def send_report_task(account: str, data: dict):
                 logger.warn(f"DRY-RUN: OK (delay {pre_delay:.1f}s omitido)", account=account)
             else:
                 await asyncio.sleep(pre_delay)
+                await _dismiss_dialogs()
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(0.1)
                 logger.read(f"Enviado a {formatted_phone} (delay: {pre_delay:.1f}s)", account=account)
