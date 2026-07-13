@@ -3,6 +3,7 @@ import time
 import asyncio
 import re
 import random
+from datetime import datetime
 from app.utils.logger import logger
 from app.core.browser_manager import browser_manager
 from app.utils.config_manager import config_manager
@@ -432,25 +433,38 @@ async def send_report_task(account: str, data: dict):
         if is_warning:
             return
         r = await queue_manager.get_redis()
-        if r:
-            nphone = normalize_phone(formatted_phone)
-            new_streak = await r.incr(f"send_streak:{nphone}")
-            logger.info(f"send_streak:{nphone} → {new_streak}", account=account)
-            cfg = config_manager.get_client_config(account)
-            if new_streak >= 3:
-                await r.hset(f"phonebook:state:{account}", nphone, "blocked")
-                logger.info(f"[{account}] {nphone} → BLOQUEADO (send_streak={new_streak})", account=account)
-            elif new_streak == 2:
-                warning_msg = cfg.get("auto_block_message", "")
-                if warning_msg:
-                    await queue_manager.enqueue(account, {
-                        "phone": nphone,
-                        "message": warning_msg,
-                        "label": "AVISO BLOQUEO",
-                        "type": "message",
-                        "is_warning": True,
-                    })
-                    logger.info(f"[{account}] {nphone} → WARNING encolado (send_streak={new_streak})", account=account)
+        if not r:
+            return
+        nphone = normalize_phone(formatted_phone)
+        cfg = config_manager.get_client_config(account)
+        if not cfg.get("auto_block_enabled", False):
+            return
+        ycloud_enabled = cfg.get("ycloud_enabled", False)
+        ycloud_mode = cfg.get("ycloud_mode", "hibrido")
+        if not (ycloud_enabled and ycloud_mode == "hibrido"):
+            return
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_key = f"streak_today:{nphone}:{today}"
+        if await r.exists(today_key):
+            logger.info(f"streak_today:{nphone}:{today} ya existe, no incrementa", account=account)
+            return
+        await r.set(today_key, "1", ex=86400)
+        new_streak = await r.incr(f"send_streak:{nphone}")
+        logger.info(f"send_streak:{nphone} → {new_streak}", account=account)
+        if new_streak >= 3:
+            await r.hset(f"phonebook:state:{account}", nphone, "blocked")
+            logger.info(f"[{account}] {nphone} → BLOQUEADO (send_streak={new_streak})", account=account)
+        elif new_streak == 2:
+            warning_msg = cfg.get("auto_block_message", "")
+            if warning_msg:
+                await queue_manager.enqueue(account, {
+                    "phone": nphone,
+                    "message": warning_msg,
+                    "label": "AVISO BLOQUEO",
+                    "type": "message",
+                    "is_warning": True,
+                })
+                logger.info(f"[{account}] {nphone} → WARNING encolado (send_streak={new_streak})", account=account)
 
     try:
         result = await _do_send()
@@ -521,6 +535,26 @@ async def process_queue_item(account: str, data: dict):
         await add_contact_task(account, data)
     elif task_type == "message":
         phone = data.get("phone", "")
+        is_warning = data.get("is_warning", False)
+        is_alert = data.get("is_alert", False)
+
+        if not is_warning and not is_alert:
+            cfg = config_manager.get_client_config(account)
+            if cfg.get("auto_block_enabled", False) and cfg.get("ycloud_enabled", False) and cfg.get("ycloud_mode") == "hibrido":
+                from app.core.ycloud_sender import get_phone_state, normalize_phone
+                state = await get_phone_state(account, phone)
+                if state == "blocked":
+                    is_monday = datetime.now().weekday() == 0
+                    if not is_monday:
+                        logger.info(f"[{account}] {phone} → SKIP (bloqueado, no es lunes)", account=account)
+                        return
+                    r = await queue_manager.get_redis()
+                    if r:
+                        nphone = normalize_phone(phone)
+                        await r.delete(f"send_streak:{nphone}")
+                        await r.hset(f"phonebook:state:{account}", nphone, "active")
+                        logger.info(f"[{account}] {phone} → REACTIVADO + STREAK RESET (lunes)", account=account)
+
         from app.core.ycloud_sender import send_via_ycloud, should_use_ycloud
         if await should_use_ycloud(phone, account):
             sent = await send_via_ycloud(phone, data.get("message", ""), account)
