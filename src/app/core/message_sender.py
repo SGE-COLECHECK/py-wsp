@@ -445,10 +445,11 @@ async def send_report_task(account: str, data: dict):
             return
         today = datetime.now().strftime("%Y-%m-%d")
         today_key = f"streak_today:{nphone}:{today}"
-        if await r.exists(today_key):
+        set_ok = await r.setnx(today_key, "1")
+        if not set_ok:
             logger.info(f"streak_today:{nphone}:{today} ya existe, no incrementa", account=account)
             return
-        await r.set(today_key, "1", ex=86400)
+        await r.expire(today_key, 86400)
         new_streak = await r.incr(f"send_streak:{nphone}")
         logger.info(f"send_streak:{nphone} → {new_streak}", account=account)
         if new_streak >= 3:
