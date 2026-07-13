@@ -268,6 +268,7 @@ def _get_ycloud_lock(account: str) -> asyncio.Lock:
 
 
 async def smart_send(account: str, phone: str, message: str, label: str = "MSG") -> str:
+    await register_phone(account, phone)
     if not await should_use_ycloud(phone, account):
         await queue_manager.enqueue(account, {
             "phone": phone, "message": message, "label": label, "type": "message",
