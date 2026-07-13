@@ -113,6 +113,36 @@ class QueueManager:
         if account in self.paused_workers: self.paused_workers.remove(account)
         else: self.paused_workers.add(account)
 
+    async def pause_worker(self, account: str):
+        self.paused_workers.add(account)
+
+    async def resume_worker(self, account: str):
+        self.paused_workers.discard(account)
+
+    async def save_failed(self, account: str, data: dict, error: str, screenshot: str = ""):
+        r = await self.get_redis()
+        if not r: return
+        entry = {
+            "phone": data.get("phone", ""),
+            "label": data.get("label", "MENSAJE"),
+            "message": data.get("message", ""),
+            "error": error[:300],
+            "screenshot": screenshot,
+            "timestamp": time.time(),
+        }
+        await r.lpush(f"failed:{account}", json.dumps(entry))
+        await r.ltrim(f"failed:{account}", 0, 999)
+
+    async def get_failed_count(self, account: str = "") -> int:
+        r = await self.get_redis()
+        if not r: return 0
+        if account:
+            return await r.llen(f"failed:{account}")
+        total = 0
+        for acc in config_manager.get_client_list():
+            total += await r.llen(f"failed:{acc}")
+        return total
+
     async def enqueue(self, account: str, data: dict):
         r = await self.get_redis()
         if not r: return

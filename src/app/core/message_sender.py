@@ -426,10 +426,35 @@ async def send_report_task(account: str, data: dict):
             return
 
         except Exception as e:
-            logger.error(f"Error en intento {attempt}: {str(e)}", account=account)
+            logger.error(f"Error en intento {attempt} para {phone}: {str(e)[:200]}", account=account)
             if attempt == 1:
-                await asyncio.sleep(5)
+                from app.core.queue_manager import queue_manager
+                await queue_manager.pause_worker(account)
+                logger.info(f"Cola de {account} PAUSADA para recovery", account=account)
+                try:
+                    page = await browser_manager.get_page(account)
+                    for _ in range(3):
+                        await page.keyboard.press("Escape")
+                        await asyncio.sleep(0.5)
+                    await page.reload()
+                    logger.info(f"Página recargada, esperando 30s...", account=account)
+                    await asyncio.sleep(30)
+                    await page.wait_for_selector("#side", timeout=35000)
+                    await asyncio.sleep(5)
+                except Exception as reload_err:
+                    logger.error(f"Error en recarga: {reload_err}", account=account)
+                await queue_manager.resume_worker(account)
+                logger.info(f"Cola de {account} REANUDADA, reintento 2...", account=account)
             else:
+                from app.core.queue_manager import queue_manager
+                ss_path = ""
+                try:
+                    page = await browser_manager.get_page(account)
+                    ss_path = f"data/errors/fail_{account}_{phone}_{int(time.time())}.png"
+                    await page.screenshot(path=ss_path)
+                except:
+                    pass
+                await queue_manager.save_failed(account, data, str(e)[:300], ss_path)
                 logger.error(f"Fallo definitivo para {phone}", account=account)
 
 async def process_queue_item(account: str, data: dict):
