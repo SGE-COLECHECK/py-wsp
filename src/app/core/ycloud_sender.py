@@ -36,12 +36,20 @@ async def store_response(phone: str, account: str = ""):
     if not r:
         return
     nphone = normalize_phone(phone)
+    # Si no tenemos cuenta, buscar en phonebook:reverse o en todos los phonebooks
+    if not account:
+        account = await r.hget("phonebook:reverse", nphone) or ""
+    if not account:
+        for acc in config_manager.get_client_list():
+            if await r.sismember(f"phonebook:{acc}", nphone):
+                account = acc
+                break
     key = f"response:{account}:{nphone}" if account else f"response:{nphone}"
     now = time.time()
     await r.set(key, now, ex=86400)
     await r.sadd("ycloud:responded", phone)
     await r.delete(f"send_streak:{nphone}")
-    logger.info(f"send_streak:{nphone} → RESET (respondió)", account=account or "")
+    logger.info(f"send_streak:{nphone} → RESET (respondió)", account=account or "(sin cuenta)")
     if account:
         await r.sadd(f"ycloud:responded:{account}", phone)
         await r.hset(f"last_response:{account}", nphone, now)
