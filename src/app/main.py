@@ -579,12 +579,10 @@ async def send_photocheck(account: str, request: Request, background_tasks: Back
     background_tasks.add_task(register_phone, account, phone_clean)
 
     message = "\n".join([
-        "🎓 *Equipo ColeCheck*",
+        "📲 *DESCARGA EL QR DE TU HIJO*",
+        f"👶 {nombre_alumno}",
         "",
-        f"📲 *QR de tu hijo: {nombre_alumno}*",
-        "",
-        "Muestra el QR a continuación al personal del colegio",
-        "para registrar su asistencia:",
+        "Toca el enlace para descargar la credencial con el QR:",
         "",
         f"🔗 {enlace}",
     ])
