@@ -561,6 +561,53 @@ async def send_warning(account: str, request: Request, background_tasks: Backgro
         "status": "queued",
     }
 
+@app.post("/whatsapp/wapp-web/{account}/sendPhotocheck")
+async def send_photocheck(account: str, request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    telefono = data.get("telefono_padre")
+    nombre_alumno = data.get("nombre_alumno", "tu hijo")
+    enlace = data.get("enlace")
+
+    if not telefono or not enlace:
+        logger.error("Faltan datos obligatorios (telefono_padre, enlace)", account=account)
+        return {"status": "error", "message": "Faltan datos obligatorios (telefono_padre, enlace)"}
+
+    phone_clean = "".join(filter(str.isdigit, str(telefono)))
+    if len(phone_clean) != 9:
+        return {"status": "error", "message": f"Teléfono inválido: {telefono} (debe ser 9 dígitos)"}
+
+    background_tasks.add_task(register_phone, account, phone_clean)
+
+    message = "\n".join([
+        "🎓 *Equipo ColeCheck*",
+        "",
+        f"📲 *QR de tu hijo: {nombre_alumno}*",
+        "",
+        "Muestra el QR a continuación al personal del colegio",
+        "para registrar su asistencia:",
+        "",
+        f"🔗 {enlace}",
+    ])
+
+    payload = {
+        "type": "message",
+        "phone": phone_clean,
+        "message": message,
+        "label": "QR ESTUDIANTE",
+        "dry_run": data.get("dry_run", False)
+    }
+
+    background_tasks.add_task(queue_manager.enqueue, account, payload)
+    logger.success(f"QR encolado para {phone_clean}", account=account)
+
+    return {
+        "success": True,
+        "message": "Mensaje QR agregado a la cola exitosamente",
+        "queueId": f"{account}-photocheck-{phone_clean}",
+        "sessionName": account,
+        "status": "queued",
+    }
+
 @app.post("/webhook")
 async def webhook(request: Request):
     body = await request.body()

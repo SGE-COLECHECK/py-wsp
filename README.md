@@ -58,6 +58,7 @@ Abre GUI en `http://localhost:3000` (FastAPI backend en mismo proceso).
 | POST | `/whatsapp/wapp-web/{account}/sendAgenda` | Agenda escolar |
 | POST | `/whatsapp/wapp-web/{account}/sendComunicado` | Comunicado |
 | POST | `/whatsapp/wapp-web/{account}/sendWarning` | LLamado de atención |
+| POST | `/whatsapp/wapp-web/{account}/sendPhotocheck` | Enviar QR del estudiante |
 
 ## Documentación detallada
 
