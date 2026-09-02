@@ -238,21 +238,40 @@ async def send_credentials(account: str, request: Request, background_tasks: Bac
     today = datetime.datetime.now().strftime("%d/%m/%Y")
     login_url = url_over if url_over else f"https://panel.colecheck.com/{tenant_id}/login"
 
-    # Construir mensaje de credenciales resaltando información clave
+    # OLD 2026-09-02 - Mensaje credenciales plataforma web (comentado, no borrar)
+    # # Construir mensaje de credenciales resaltando información clave
+    # message = [
+    #     "🎓 *Equipo ColeCheck*",
+    #     "",
+    #     "🔐 *Credenciales de acceso:*",
+    #     f"👤 Usuario: {usuario}",
+    #     f"🔑 Contraseña: {contrasena}",
+    #     f"🌐 {login_url}",
+    #     "",
+    #     "⚠️ *Importante:*",
+    #     "Guarde este mensaje y no comparta sus credenciales.",
+    #     "",
+    #     "📲 *¿Por qué usar la plataforma?*",
+    #     "En horarios de ingreso, muchos estudiantes registran su asistencia al mismo tiempo, lo que puede generar demoras en los mensajes de WhatsApp.",
+    #     "Desde la plataforma puede verlo *al instante*, sin esperar."
+    # ]
+
+    # NEW 2026-09-02 - Mensaje nueva aplicación móvil (enlace fijo)
     message = [
-        "🎓 *Equipo ColeCheck*",
+        "📱 *NUEVA APLICACIÓN COLECHECK*",
         "",
-        "🔐 *Credenciales de acceso:*",
+        "Estimado padre de familia:",
+        "",
+        "Ya puede descargar la aplicación móvil para recibir las notificaciones de asistencia.",
+        "",
+        "🔗 *Descargar aplicación:*",
+        "https://play.google.com/store/apps/details?id=com.colecheck.app",
+        "",
+        "🔐 *Datos de acceso:*",
         f"👤 Usuario: {usuario}",
         f"🔑 Contraseña: {contrasena}",
-        f"🌐 {login_url}",
         "",
-        "⚠️ *Importante:*",
-        "Guarde este mensaje y no comparta sus credenciales.",
-        "",
-        "📲 *¿Por qué usar la plataforma?*",
-        "En horarios de ingreso, muchos estudiantes registran su asistencia al mismo tiempo, lo que puede generar demoras en los mensajes de WhatsApp.",
-        "Desde la plataforma puede verlo *al instante*, sin esperar."
+        "🎓 *Equipo ColeCheck*"
     ]
     final_message = "\n".join(message)
 
