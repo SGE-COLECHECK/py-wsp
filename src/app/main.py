@@ -625,6 +625,112 @@ async def send_photocheck(account: str, request: Request, background_tasks: Back
         "status": "queued",
     }
 
+
+# ----------------------------------------------------------------------------
+# ENDPOINT: Reporte para directivos (réplica de Baileys - ex-proyecto baileys-message)
+# Recibe DTO estilo DirectiveReportDto:
+#   telefono_director, colegio, categoria, grados[{numero, secciones[{letra,asistencias,totalAlumnos,porcentaje}]}]
+# ----------------------------------------------------------------------------
+
+def _get_grade_circle(numero: int) -> str:
+    _GRADE_CIRCLE = ['🟣','🟢','🔵','🟡','🟠','🟤','⚪']
+    return _GRADE_CIRCLE[numero] if 0 <= numero < len(_GRADE_CIRCLE) else ''
+
+def _get_grade_emoji(numero: int) -> str:
+    _GRADE_EMOJI = ['0️⃣','1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣']
+    return _GRADE_EMOJI[numero] if 0 <= numero < len(_GRADE_EMOJI) else str(numero)
+
+def _get_bar(porcentaje: float) -> str:
+    filled = round(porcentaje / 10)
+    filled = max(0, min(10, filled))
+    return '█' * filled + '░' * (10 - filled)
+
+_DIRECTIVE_THANKS = (
+    '✨ ¡Gracias por su apoyo! ✨',
+    '✨ ¡Gracias por confiar en nosotros! ✨',
+    '✨ ¡Gracias por su compromiso con la educación! ✨',
+    '✨ ¡Gracias por acompañarnos en este proceso! ✨',
+)
+
+
+@app.post("/whatsapp/wapp-web/{account}/sendDirectiveReport")
+async def send_directive_report(account: str, request: Request, background_tasks: BackgroundTasks):
+    data = await request.json()
+    telefono_director = data.get("telefono_director")
+    colegio = data.get("colegio")
+    categoria = data.get("categoria")
+    grados = data.get("grados", [])
+
+    if not telefono_director or not colegio or not categoria or not grados:
+        return {"status": "error", "message": "Faltan datos obligatorios (telefono_director, colegio, categoria, grados)"}
+
+    phone_clean = "".join(filter(str.isdigit, str(telefono_director)))
+    if len(phone_clean) != 9:
+        logger.error(f"Teléfono inválido: {telefono_director} (debe ser 9 dígitos)", account=account)
+        return {"status": "error", "message": f"Teléfono inválido: {telefono_director} (debe ser 9 dígitos)"}
+
+    background_tasks.add_task(register_phone, account, phone_clean)
+
+    import datetime
+    import random
+    fecha = datetime.datetime.now().strftime("%d/%m/%Y")
+    thanks = random.choice(_DIRECTIVE_THANKS)
+
+    detalle_lines = []
+    for grado in grados:
+        circle = _get_grade_circle(grado["numero"])
+        num_emoji = _get_grade_emoji(grado["numero"])
+        for s in grado["secciones"]:
+            bar = _get_bar(s["porcentaje"])
+            detalle_lines.append(
+                f"{circle} {num_emoji}{s['letra']} {s['asistencias']} / {s['totalAlumnos']} {bar} {s['porcentaje']}%"
+            )
+    detalle = "\n".join(detalle_lines)
+
+    message = (
+        f"🔔 BALANCE DIARIO 🇨 🇴 🇱 🇪 ✅ [{fecha}] 🗓️\n\n"
+        f"📑 Seguimiento Temprano de Asistencia\n"
+        f"⌚ Hasta: 8:15 a.m.\n\n"
+        f"🏫 {colegio}\n"
+        f"📚 Categoría: {categoria}\n\n"
+        f"📊 Monitoreo por Sección (Antes de Formación)\n\n"
+        f"▪️▪️▪️▪️▪️▪️▪️▪️▪️▪️\n"
+        f"{detalle}\n\n"
+        f"📝 Información preliminar - falta consolidado definitivo.\n"
+        f"{thanks}"
+    )
+
+    payload = {
+        "type": "message",
+        "phone": phone_clean,
+        "message": message,
+        "label": "DIRECTIVO",
+        "dry_run": data.get("dry_run", False),
+    }
+
+    background_tasks.add_task(queue_manager.enqueue, account, payload)
+
+    total_grados = len(grados)
+    total_secciones = sum(len(g["secciones"]) for g in grados)
+    logger.success(f"Reporte directivo encolado para {colegio} ({total_secciones} secciones) → {phone_clean}", account=account)
+
+    return {
+        "success": True,
+        "message": "Reporte directivo agregado a la cola exitosamente",
+        "queueId": f"{account}-directive-{phone_clean}",
+        "sessionName": account,
+        "data": {
+            "colegio": colegio,
+            "categoria": categoria,
+            "telefono_director": phone_clean,
+            "fecha": fecha,
+            "total_grados": total_grados,
+            "total_secciones": total_secciones,
+        },
+        "status": "queued",
+    }
+
+
 @app.post("/webhook")
 async def webhook(request: Request):
     body = await request.body()
