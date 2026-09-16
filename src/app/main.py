@@ -264,7 +264,7 @@ async def send_credentials(account: str, request: Request, background_tasks: Bac
         "",
         "👋 *Estimado padre de familia:*",
         "",
-        "Ya puede utilizar *ColeCheck* para recibir las notificaciones de asistencia de su hijo/a.",
+        "Ya puede utilizar *ColeCheck-App* para recibir las notificaciones de asistencia de su hijo/a.",
         "",
         "🔗 *Descargar aplicación:*",
         "https://play.google.com/store/apps/details?id=com.colecheck.app",
