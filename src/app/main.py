@@ -256,20 +256,30 @@ async def send_credentials(account: str, request: Request, background_tasks: Bac
     #     "Desde la plataforma puede verlo *al instante*, sin esperar."
     # ]
 
-    # NEW 2026-09-02 - Mensaje nueva aplicación móvil (enlace fijo)
+    # NEW 2026-09-15 - Mensaje app móvil + código de colegio (tenant_id)
     message = [
+        f"🚨🇨🇴🇱🇪✅ *[{today}]*",
+        "",
         "📱 *NUEVA APLICACIÓN COLECHECK*",
         "",
-        "Estimado padre de familia:",
+        "👋 *Estimado padre de familia:*",
         "",
-        "Ya puede descargar la aplicación móvil para recibir las notificaciones de asistencia.",
+        "Ya puede utilizar *ColeCheck* para recibir las notificaciones de asistencia de su hijo/a.",
         "",
         "🔗 *Descargar aplicación:*",
         "https://play.google.com/store/apps/details?id=com.colecheck.app",
         "",
-        "🔐 *Datos de acceso:*",
-        f"👤 Usuario: {usuario}",
-        f"🔑 Contraseña: {contrasena}",
+        "🔐 *DATOS DE ACCESO*",
+        "",
+        f"👤 *Usuario:* {usuario}",
+        f"🔑 *Contraseña:* {contrasena}",
+        f"🏫 *Código de colegio:* {tenant_id}",
+        "",
+        "⚠️ *IMPORTANTE*",
+        "",
+        "Debido a *cambios en el servicio de WhatsApp*, las notificaciones de asistencia *dejarán de enviarse por este medio.*",
+        "",
+        "📱 *Desde ahora*, las notificaciones de *ingreso y salida* se recibirán mediante la *aplicación ColeCheck.*",
         "",
         "🎓 *Equipo ColeCheck*"
     ]
