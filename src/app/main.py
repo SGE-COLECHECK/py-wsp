@@ -172,22 +172,21 @@ async def send_registration_link(account: str, request: Request, background_task
     import datetime
     today = datetime.datetime.now().strftime("%d/%m/%Y")
 
-    # Construir mensaje de registro estructurado
+# Construir mensaje de registro estructurado
     message = [
-        f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ *[ {today} ]*",
+        f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ *[{today}]*",
         "",
-        "👋 Estimado padre/madre:",
+        "👋 *Estimado padre/madre:*",
         "",
-        "📊 Ahora puede revisar la asistencia de su hijo/a en tiempo real.",
+        "📱 *Para recibir notificaciones y revisar la asistencia de su hijo/a en tiempo real, regístrese en ColeCheck.*",
         "",
-        "📲 Regístrese en menos de 1 minuto:",
-        f"🔗 {url}",
+        "🔗 *REGÍSTRESE AQUÍ:*",
+        f"{url}",
         "",
-        "1️⃣ Ingrese al enlace",
-        "2️⃣ Complete sus datos",
-        "3️⃣ Seleccione a su hijo/a",
+        "1️⃣ Complete sus datos",
+        "2️⃣ Seleccione a su hijo/a",
         "",
-        "🔐 Validaremos su información y le enviaremos su acceso por este medio.",
+        "🔐 Recibirá automáticamente sus credenciales de acceso.",
         "",
         "🎓 *Equipo ColeCheck*"
     ]
