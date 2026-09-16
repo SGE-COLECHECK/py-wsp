@@ -258,7 +258,7 @@ async def send_credentials(account: str, request: Request, background_tasks: Bac
 
     # NEW 2026-09-15 - Mensaje app móvil + código de colegio (tenant_id)
     message = [
-        f"🚨🇨🇴🇱🇪✅ *[{today}]*",
+        f"🚨🇨​​​​​🇴​​​​​🇱​​​​​🇪✅ *[{today}]*",
         "",
         "📱 *NUEVA APLICACIÓN COLECHECK*",
         "",
