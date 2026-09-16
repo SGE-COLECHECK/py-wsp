@@ -178,7 +178,7 @@ async def send_registration_link(account: str, request: Request, background_task
         "",
         "👋 *Estimado padre/madre:*",
         "",
-        "📱 *Para recibir notificaciones y revisar la asistencia de su hijo/a en tiempo real, regístrese en ColeCheck.*",
+        "📱 Para recibir *notificaciones* y revisar la asistencia de su hijo/a en *tiempo real*, regístrese en ColeCheck.",
         "",
         "🔗 *REGÍSTRESE AQUÍ:*",
         f"{url}",
